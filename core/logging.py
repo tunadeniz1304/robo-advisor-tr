@@ -16,8 +16,9 @@ a circular dependency between the logging layer and the settings layer.
 from __future__ import annotations
 
 import logging
+import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import structlog
 
@@ -74,9 +75,9 @@ def configure_logging(level: Optional[str] = None, log_json: Optional[bool] = No
             structlog.processors.JSONRenderer(ensure_ascii=False),
         ]
     else:
-        processors = shared_processors + [
-            structlog.processors.ConsoleRenderer(colors=sys.stdout.isatty()),
-        ]
+        from structlog.dev import ConsoleRenderer
+
+        processors = shared_processors + [ConsoleRenderer(colors=sys.stdout.isatty())]
 
     structlog.configure(
         processors=processors,

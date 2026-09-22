@@ -53,18 +53,21 @@ def create_engine_from_url(database_url: str) -> AsyncEngine:
         ImportError: Propagated from SQLAlchemy when the driver for the given
             scheme is not installed.
     """
-    connect_args: dict[str, object] = {}
-    if database_url.startswith("sqlite"):
-        # SQLite is single-writer; ``check_same_thread`` must be False for
-        # async usage across event-loop threads.
-        connect_args["check_same_thread"] = False
+    engine = create_async_engine(database_url, echo=False, pool_pre_ping=True)
 
-    return create_async_engine(
-        database_url,
-        echo=False,
-        pool_pre_ping=True,
-        connect_args=connect_args,
-    )
+    if database_url.startswith("sqlite"):
+        from sqlalchemy import event
+
+        # SQLite, varsayılan olarak FK kısıtlarını uygulamaz; ON DELETE
+        # CASCADE'in (ve diğer FK kurallarının) çalışması için her bağlantıda
+        # PRAGMA foreign_keys=ON etkinleştirilmeli.
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_sqlite_fk(dbapi_conn, _record):  # noqa: ANN001
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+    return engine
 
 
 def session_factory_for(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

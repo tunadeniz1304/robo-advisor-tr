@@ -5,6 +5,11 @@ POST /api/v1/advisor/rebalance/{portfolio_id}?customer_id=…
 Runs the full LangGraph pipeline (market -> risk -> portfolio manager), applies
 the rebalancing to the database (SQL UPDATE/INSERT) and returns target
 weights, executed orders and the LLM narrative.
+
+Dependency injection: :func:`get_advisor_service` is the FastAPI dependency
+that wires :class:`services.advisor_service.AdvisorService`. Production uses
+real services (see below); tests override this dependency with deterministic
+doubles, so integration tests never touch the network.
 """
 from __future__ import annotations
 
@@ -20,10 +25,18 @@ logger = get_logger("otonom.router.advisor")
 router = APIRouter(prefix="/advisor", tags=["advisor"])
 
 
-def _advisor_service(request: Request, checkpoint_db: str | None = None) -> AdvisorService:
-    """Build an AdvisorService from the app's settings (DI point)."""
+def get_advisor_service(request: Request) -> AdvisorService:
+    """FastAPI dependency building the AdvisorService from app settings.
+
+    Reads ``request.app.state.settings`` (set by the app factory) and
+    constructs real services. Tests override this dependency via
+    ``app.dependency_overrides[get_advisor_service]`` to inject fakes.
+    """
     settings: Settings = request.app.state.settings
-    return AdvisorService(settings=settings, checkpoint_db=checkpoint_db)
+    return AdvisorService(settings=settings)
+
+
+AdvisorServiceDep = Depends(get_advisor_service)
 
 
 @router.post(
@@ -41,11 +54,11 @@ async def rebalance_portfolio(
     request: Request,
     portfolio_id: int,
     customer_id: int = Query(..., gt=0, description="Müşteri kimliği"),
+    service: AdvisorService = AdvisorServiceDep,
 ) -> AdvisorResponse:
     """Run the advisor workflow for a portfolio and persist the rebalance."""
-    service = _advisor_service(request)
-
-    if not service._settings.has_llm_credentials:
+    settings: Settings = request.app.state.settings
+    if not settings.has_llm_credentials and getattr(service, "_llm", None) is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -69,6 +82,6 @@ async def rebalance_portfolio(
         ) from exc
 
     if result.error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=result.error)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=result.error)
 
     return AdvisorResponse(**result.to_dict())
