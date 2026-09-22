@@ -99,4 +99,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(advisor.router, prefix=api_prefix)
 
+    # --- Eklemeler (sürekli geliştirme): analytics + risk raporu -------------
+    from routers import analytics, advisor_risk, runs
+
+    app.include_router(analytics.router, prefix=api_prefix)
+    app.include_router(advisor_risk.router, prefix=api_prefix)
+    app.include_router(runs.router, prefix=api_prefix)
+
     return app

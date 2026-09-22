@@ -6,8 +6,9 @@ below give callers a single import point::
 
     from models import Customer, Portfolio, Transaction
 """
+from models.advisor_run import AdvisorRun
 from models.customer import Customer
 from models.portfolio import Portfolio
 from models.transaction import Transaction
 
-__all__ = ["Customer", "Portfolio", "Transaction"]
+__all__ = ["AdvisorRun", "Customer", "Portfolio", "Transaction"]

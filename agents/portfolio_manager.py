@@ -31,7 +31,7 @@ from agents.state import AdvisorState
 from core.database import session_factory
 from core.logging import get_logger
 from llm.clients import LLMClient, LLMProviderError
-from models import Portfolio, Transaction
+from models import AdvisorRun, Portfolio, Transaction
 from services.portfolio_service import PortfolioService
 
 logger = get_logger("otonom.agent.portfolio")
@@ -64,6 +64,9 @@ class PortfolioManagerAgent:
                 weights = await self._compute_weights(market, returns_payload, risk)
                 orders = await self._rebalance(portfolio_id, weights, market)
                 report = await self._llm_analysis(state, weights, orders)
+                await self._persist_audit_run(
+                    state, weights=weights, orders=orders, report=report, error=None
+                )
             except LLMProviderError as exc:
                 # LLM erişilemez durumda: MPT ağırlıkları hâlâ uygulanabilir —
                 # ama kullanıcıya bunu açıkça raporla.
@@ -74,6 +77,9 @@ class PortfolioManagerAgent:
                     "Otomatik yeniden dengeleme tamamlandı; LLM analizi şu an "
                     f"erişilemediği için atlandı ({exc}). Ağırlıklar Markowitz "
                     "optimizasyonuna dayanmaktadır."
+                )
+                await self._persist_audit_run(
+                    state, weights=weights, orders=orders, report=report, error=str(exc)
                 )
                 return {"weights": weights, "orders": orders, "report": report, "error": None}
 
@@ -241,6 +247,51 @@ class PortfolioManagerAgent:
         return await self._llm.complete(
             system=PORTFOLIO_MANAGER_SYSTEM, user=user_prompt, max_tokens=700
         )
+
+    async def _persist_audit_run(
+        self,
+        state: AdvisorState,
+        *,
+        weights: dict[str, float],
+        orders: list[dict[str, object]],
+        report: str,
+        error: str | None,
+    ) -> None:
+        """Regülatif audit trail: bu çalışmanın tam kaydını ``advisor_runs`` tablosuna yaz.
+
+        ESMA/MiFID II uyumluluğu için algoritmik yatırım tavsiyesinin arkasında
+        sorgulanabilir bir iz bırakılmalıdır: hangi girdilerle hangi kararlar
+        alındı, hangi emirler üretildi. Bu kayıt, işlem commit edildikten sonra
+        ayrı bir oturumla yazılır (işlemler ve iz aynı dilimde değildir).
+        """
+        portfolio_id = state.get("portfolio_id")
+        customer_id = state.get("customer_id")
+        if not portfolio_id or not customer_id:
+            logger.warning("audit_run_skipped_missing_context", state_keys=sorted(state.keys()))
+            return
+        market_input = state.get("market") or {}
+        if error is None:
+            status = "success"
+        else:
+            status = "degraded"  # LLM erişilemedi ama MPT uygulandı
+        try:
+            async with session_factory() as session:
+                session.add(
+                    AdvisorRun(
+                        portfolio_id=int(portfolio_id),
+                        customer_id=int(customer_id),
+                        market_input=market_input,
+                        target_weights=weights,
+                        orders=orders,
+                        report=report,
+                        status=status,
+                        error=error,
+                    )
+                )
+                await session.commit()
+            logger.info("audit_run_persisted", portfolio_id=portfolio_id, status=status)
+        except Exception as exc:  # noqa: BLE001 - iz yazımı ana akışı bozmamalı
+            logger.exception("audit_run_failed", portfolio_id=portfolio_id, error=str(exc))
 
 
 __all__ = ["PortfolioManagerAgent"]

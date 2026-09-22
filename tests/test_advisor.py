@@ -140,3 +140,33 @@ def test_llm_missing_returns_503(client: TestClient) -> None:
         f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
     )
     assert resp.status_code == 503
+
+
+def test_advisor_persists_audit_run(advisor_client: TestClient) -> None:
+    """A successful run writes an immutable AdvisorRun row (audit trail)."""
+    customer_id = create_customer(advisor_client)["id"]
+    portfolio_id = create_portfolio(advisor_client, customer_id)["id"]
+
+    resp = advisor_client.post(
+        f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
+    )
+    assert resp.status_code == 200, resp.text
+
+    runs = advisor_client.get("/api/v1/runs", params={"portfolio_id": portfolio_id}).json()
+    assert len(runs) == 1
+    run = runs[0]
+
+    assert run["portfolio_id"] == portfolio_id
+    assert run["customer_id"] == customer_id
+    assert run["status"] == "success"
+    assert run["error"] is None
+    assert run["report"]  # DeterministicLLM narrative recorded
+    assert run["orders"]  # executed orders snapshotted
+    assert set(run["target_weights"].keys()) == set(resp.json()["weights"].keys())
+    assert run["created_at"] is not None
+
+    # Single-run detail endpoint resolves the same row.
+    detail = advisor_client.get(f"/api/v1/runs/{run['id']}").json()
+    assert detail["id"] == run["id"]
+    assert detail["status"] == "success"
+
