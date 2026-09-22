@@ -1,0 +1,58 @@
+# =============================================================================
+# Otonom Finansal Danışman (Robo-Advisor) — Docker Compose Orchestration
+# Prodüksiyona hazır servis topolojisi:
+#   * api  : FastAPI uygulaması (uvicorn)
+#   * db   : PostgreSQL 16 (ana veritabanı)
+# API anahtarları (OPENAI_API_KEY / ANTHROPIC_API_KEY) host üzerindeki
+# .env dosyasından Compose interpolation ile aktarılır; imaja yazılmaz.
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: otonom-advisor-api
+    restart: unless-stopped
+    environment:
+      # Ortam değişkenleri "bake" edilir (README: docker compose up --build)
+      DATABASE_URL: postgresql+asyncpg://advisor:advisor@db:5432/advisor
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: "true"
+      API_V1_PREFIX: /api/v1
+      # Gerçek LLM anahtarları host .env'den gelir (ikisinden biri kullanılır)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  db:
+    image: postgres:16-alpine
+    container_name: otonom-advisor-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: advisor
+      POSTGRES_PASSWORD: advisor
+      POSTGRES_DB: advisor
+    ports:
+      # Host tarafında da 5432'de yayınla — yerel geliştirme/debug için.
+      - "5432:5432"
+    volumes:
+      - advisor_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U advisor -d advisor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  advisor_pgdata:
