@@ -1,0 +1,228 @@
+"""Market data service — real Yahoo Finance data via ``yfinance``.
+
+The production path downloads price history asynchronously (the synchronous
+``yfinance`` call is offloaded to a worker thread via :func:`asyncio.to_thread`
+so the event loop is never blocked) and computes the derived quantities the
+Risk and Portfolio agents need:
+
+    * last close price per ticker,
+    * 1-month momentum,
+    * annualised volatility,
+    * aligned daily-return series (indexed by date) for Markowitz MPT.
+
+The service depends on a :class:`MarketDataSource` protocol rather than on
+``yfinance`` directly. The default implementation :class:`YFinanceSource`
+talks to the network; tests inject a deterministic in-memory source that
+satisfies the same protocol, so the rest of the system is verified offline
+while production still uses real market data.
+"""
+from __future__ import annotations
+
+import asyncio
+import math
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Protocol
+
+import pandas as pd
+
+from core.logging import get_logger
+
+logger = get_logger("otonom.market")
+
+
+class MarketDataSource(Protocol):
+    """Protocol for a source of OHLC price histories.
+
+    Implementations must return a mapping ``symbol -> DataFrame`` whose index
+    is a ``DatetimeIndex`` and that contains at least a ``Close`` column.
+    """
+
+    async def download_history(self, symbols: list[str]) -> dict[str, pd.DataFrame]:
+        """Download adjusted daily close history for the given symbols."""
+        ...
+
+
+class YFinanceSource:
+    """Real market data source backed by the Yahoo Finance API (yfinance)."""
+
+    def __init__(self, period: str = "6mo", interval: str = "1d") -> None:
+        self._period = period
+        self._interval = interval
+
+    async def download_history(self, symbols: list[str]) -> dict[str, pd.DataFrame]:
+        """Download histories off the event loop.
+
+        ``yfinance`` is synchronous; ``to_thread`` keeps the network I/O off
+        the asyncio loop. Ticker symbols are normalised to Yahoo Finance
+        format (e.g. ``THYAO.IS`` for Borsa Istanbul).
+
+        Returns:
+            A mapping of the *requested* symbols to DataFrames (never raises
+            per-symbol; missing symbols simply yield an empty frame).
+
+        Raises:
+            RuntimeError: If the whole download fails (e.g. no connectivity).
+        """
+
+        def _blocking_download() -> dict[str, pd.DataFrame]:
+            import yfinance as yf
+
+            data = yf.download(
+                tickers=" ".join(symbols),
+                period=self._period,
+                interval=self._interval,
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+            )
+            result: dict[str, pd.DataFrame] = {}
+            if len(symbols) == 1:
+                result[symbols[0]] = data
+            else:
+                for sym in symbols:
+                    try:
+                        result[sym] = data[sym]
+                    except KeyError:
+                        result[sym] = pd.DataFrame()
+            return result
+
+        try:
+            return await asyncio.to_thread(_blocking_download)
+        except Exception as exc:
+            logger.error("market_download_failed", symbols=symbols, error=str(exc))
+            raise RuntimeError(f"Yahoo Finance veri indirilemedi: {exc}") from exc
+
+
+@dataclass
+class MarketSnapshot:
+    """Derived market facts for a single ticker."""
+
+    ticker: str
+    last_price: float
+    momentum_1m: float
+    volatility_annualized: float
+    daily_returns: dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        """JSON-friendly representation for the state graph checkpoint."""
+        return {
+            "ticker": self.ticker,
+            "last_price": self.last_price,
+            "momentum_1m": self.momentum_1m,
+            "volatility_annualized": self.volatility_annualized,
+        }
+
+
+class MarketService:
+    """Orchestrates downloads and derives per-ticker analytics.
+
+    Args:
+        source: Market data source (real ``yfinance`` or injected test double).
+        min_periods: Minimum number of observations required to compute
+            statistics; shorter series yield ``NaN``-sanitised values.
+    """
+
+    TRADING_DAYS = 252
+
+    def __init__(self, source: MarketDataSource, min_periods: int = 20) -> None:
+        self._source = source
+        self._min_periods = min_periods
+
+    async def fetch_snapshots(self, symbols: list[str]) -> dict[str, MarketSnapshot]:
+        """Download and analyse each requested symbol.
+
+        Args:
+            symbols: List of ticker symbols in Yahoo Finance format.
+
+        Returns:
+            Mapping of symbol → :class:`MarketSnapshot` containing last price,
+            momentum and annualised volatility for every symbol that provided
+            enough data.
+        """
+        histories = await self._source.download_history(symbols)
+        snapshots: dict[str, MarketSnapshot] = {}
+        for sym in symbols:
+            frame = self._normalise(histories.get(sym, pd.DataFrame()))
+            if frame is None:
+                logger.warning("symbol_skipped", symbol=sym, reason="insufficient_data")
+                continue
+            snapshots[sym] = self._analyse(sym, frame)
+        return snapshots
+
+    # -- internals -----------------------------------------------------------
+
+    @staticmethod
+    def _normalise(frame: pd.DataFrame) -> pd.DataFrame | None:
+        """Select 'Close', drop NaN rows, require enough samples."""
+        if frame is None or frame.empty:
+            return None
+        if "Close" not in frame.columns:
+            return None
+        clean = frame[["Close"]].dropna()
+        clean = clean[clean["Close"] > 0]
+        return clean
+
+    def _analyse(self, symbol: str, frame: pd.DataFrame) -> MarketSnapshot:
+        """Compute price analytics from a cleaned OHLC frame."""
+        closes = frame["Close"]
+        returns = closes.pct_change().dropna()
+
+        last_price = float(closes.iloc[-1])
+        # 1-month momentum: 21 trading days ago -> today.
+        window = min(21, len(closes) - 1)
+        momentum = (
+            (float(closes.iloc[-1]) / float(closes.iloc[-window - 1]) - 1.0)
+            if window >= 1 and window < len(closes)
+            else 0.0
+        )
+        # Annualised volatility from daily standard deviation.
+        vol = float(returns.std()) * math.sqrt(self.TRADING_DAYS) if len(returns) >= self._min_periods else 0.0
+
+        daily_returns = {
+            idx.date().isoformat(): float(value)
+            for idx, value in returns.tail(self.TRADING_DAYS).items()
+        }
+        logger.debug(
+            "symbol_analysed",
+            symbol=symbol,
+            last_price=last_price,
+            momentum_1m=momentum,
+            volatility=round(vol, 4),
+        )
+        return MarketSnapshot(
+            ticker=symbol,
+            last_price=last_price,
+            momentum_1m=momentum,
+            volatility_annualized=vol,
+            daily_returns=daily_returns,
+        )
+
+    # -- convenience for Markowitz -------------------------------------------
+
+    def build_returns_frame(
+        self, snapshots: dict[str, MarketSnapshot]
+    ) -> pd.DataFrame:
+        """Align per-ticker daily returns into a single ``ticker x date`` frame.
+
+        Tickers that report no returns are dropped; dates are unioned (pandas
+        aligns on the index), so the downstream Markowitz routine only sees
+        observations where every remaining asset traded.
+
+        Returns:
+            A DataFrame indexed by date whose columns are tickers.
+        """
+        series: dict[str, pd.Series] = {}
+        for sym, snap in snapshots.items():
+            if not snap.daily_returns:
+                continue
+            idx = pd.to_datetime(list(snap.daily_returns.keys()))
+            series[sym] = pd.Series(list(snap.daily_returns.values()), index=idx)
+        if not series:
+            return pd.DataFrame()
+        frame = pd.DataFrame(series).dropna(how="all")
+        return frame
+
+
+__all__ = ["MarketService", "MarketDataSource", "YFinanceSource", "MarketSnapshot"]

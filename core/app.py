@@ -94,4 +94,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(portfolios.router, prefix=api_prefix)
     app.include_router(transactions.router, prefix=api_prefix)
 
+    # --- Advisor router (Adım 4) --------------------------------------------
+    from routers import advisor
+
+    app.include_router(advisor.router, prefix=api_prefix)
+
     return app
