@@ -47,10 +47,11 @@ class AdvisorGraph:
             by this object so subsequent ``invoke`` calls can resume state.
     """
 
-    def __init__(self, compiled, thread_id: str, checkpointer=None) -> None:
+    def __init__(self, compiled, thread_id: str, checkpointer=None, _conn=None) -> None:
         self.compiled = compiled
         self.thread_id = thread_id
         self.checkpointer = checkpointer
+        self._conn = _conn
 
     async def ainvoke(self, initial_state: dict) -> dict:
         """Invoke and return the final state as a plain dict."""
@@ -58,8 +59,14 @@ class AdvisorGraph:
         result = await self.compiled.ainvoke(initial_state, config=config)
         return dict(result)
 
+    async def aclose(self) -> None:
+        """Release the durable checkpoint connection, if any."""
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
 
-def build_advisor_graph(
+
+async def build_advisor_graph(
     *,
     market_service: MarketService,
     risk_service: RiskService,
@@ -107,14 +114,26 @@ def build_advisor_graph(
     graph.add_edge("portfolio_manager", END)
 
     if checkpoint_db is not None:
+        import aiosqlite
+
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        saver = AsyncSqliteSaver.from_conn_string(str(checkpoint_db))
+        # from_conn_string is an async context manager; instead we open the
+        # connection ourselves and keep it alive for the graph lifetime so
+        # replayable checkpoints survive across invokes.
+        conn = await aiosqlite.connect(str(checkpoint_db))
+        saver = AsyncSqliteSaver(conn)
         compiled = graph.compile(checkpointer=saver)
-        return AdvisorGraph(compiled=compiled, thread_id=thread_id, checkpointer=saver)
+        logger.info("advisor_graph_compiled", thread_id=thread_id, durable=True)
+        return AdvisorGraph(
+            compiled=compiled,
+            thread_id=thread_id,
+            checkpointer=saver,
+            _conn=conn,
+        )
 
     compiled = graph.compile()
-    logger.info("advisor_graph_compiled", thread_id=thread_id, durable=checkpoint_db is not None)
+    logger.info("advisor_graph_compiled", thread_id=thread_id, durable=False)
     return AdvisorGraph(compiled=compiled, thread_id=thread_id)
 
 

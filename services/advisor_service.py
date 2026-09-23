@@ -114,7 +114,7 @@ class AdvisorService:
             holdings = dict(portfolio.holdings or {})
 
         thread_id = f"portfolio-{portfolio_id}"
-        graph: AdvisorGraph = build_advisor_graph(
+        graph: AdvisorGraph = await build_advisor_graph(
             market_service=self._market,
             risk_service=self._risk,
             portfolio_service=self._mpt,
@@ -128,7 +128,10 @@ class AdvisorService:
             "portfolio_id": portfolio_id,
             "holdings": holdings,
         }
-        final_state = await graph.ainvoke(initial_state)
+        try:
+            final_state = await graph.ainvoke(initial_state)
+        finally:
+            await graph.aclose()
 
         logger.info(
             "advisor_run_completed",
