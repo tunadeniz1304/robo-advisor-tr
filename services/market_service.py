@@ -126,9 +126,17 @@ class MarketService:
 
     TRADING_DAYS = 252
 
-    def __init__(self, source: MarketDataSource, min_periods: int = 20) -> None:
+    def __init__(
+        self,
+        source: MarketDataSource,
+        min_periods: int = 20,
+        cache_ttl_seconds: int = 300,
+    ) -> None:
         self._source = source
         self._min_periods = min_periods
+        self._ttl = cache_ttl_seconds
+        # symbol-tuple -> (monotonic timestamp, snapshots)
+        self._cache: dict[tuple[str, ...], tuple[float, dict[str, MarketSnapshot]]] = {}
 
     async def fetch_snapshots(self, symbols: list[str]) -> dict[str, MarketSnapshot]:
         """Download and analyse each requested symbol.
@@ -141,6 +149,13 @@ class MarketService:
             momentum and annualised volatility for every symbol that provided
             enough data.
         """
+        key = tuple(sorted(set(symbols)))
+        now = asyncio.get_running_loop().time()
+        cached = self._cache.get(key)
+        if cached is not None and (now - cached[0]) < self._ttl:
+            logger.debug("market_cache_hit", symbols=symbols, age=round(now - cached[0], 1))
+            return cached[1]
+
         histories = await self._source.download_history(symbols)
         snapshots: dict[str, MarketSnapshot] = {}
         for sym in symbols:
@@ -149,7 +164,16 @@ class MarketService:
                 logger.warning("symbol_skipped", symbol=sym, reason="insufficient_data")
                 continue
             snapshots[sym] = self._analyse(sym, frame)
+
+        self._cache[key] = (now, snapshots)
         return snapshots
+
+    def invalidate_cache(self, symbols: list[str] | None = None) -> None:
+        """Drop cached snapshots (all, or only for the given symbols)."""
+        if symbols is None:
+            self._cache.clear()
+            return
+        self._cache.pop(tuple(sorted(set(symbols))), None)
 
     # -- internals -----------------------------------------------------------
 
