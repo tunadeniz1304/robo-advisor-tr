@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import Settings
 from core.database import get_session
 from models import Portfolio, Transaction
-from services.analytics_service import AnalyticsService
+from services.analytics_service import AnalyticsService, MonteCarloProjection
 from services.market_service import MarketService, YFinanceSource
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
@@ -158,6 +158,55 @@ async def get_drift(
         trigger_band=trigger_band,
     )
 
+
+
+@router.get(
+    "/{portfolio_id}/projection",
+    summary="Monte Carlo ile hedef projeksiyon (gelecek değer senaryoları)",
+    description=(
+        "Portföyün güncel değeri, beklenen yıllık getirisi ve oynaklığı ile "
+        "hedef ufuk sonundaki 5./50./95. dilim değerlerini stokastik olarak "
+        "simüle eder (geometric Brownian motion)."
+    ),
+)
+async def get_projection(
+    request: Request,
+    portfolio_id: int,
+    session: SessionDep,
+    horizon_years: Annotated[float, Query(ge=0.1, le=50)] = 10.0,
+    n_simulations: Annotated[int, Query(ge=100, le=10000)] = 2000,
+) -> dict[str, object]:
+    """Return Monte Carlo wealth projection for the portfolio."""
+    portfolio = await _get_portfolio_or_404(session, portfolio_id)
+    del request
+
+    market = MarketService(YFinanceSource())
+    tickers = [t for t in portfolio.holdings if portfolio.holdings.get(t, 0) > 0]
+    snapshots = await market.fetch_snapshots(tickers) if tickers else {}
+    valuation = AnalyticsService().value_portfolio(
+        portfolio_id=portfolio.id,
+        cash=float(portfolio.cash),
+        holdings=dict(portfolio.holdings or {}),
+        snapshots=snapshots,
+    )
+    vol = 0.15
+    expected = 0.06
+    if tickers:
+        vols = [snapshots[t].volatility_annualized for t in tickers if t in snapshots and snapshots[t].volatility_annualized > 0]
+        moms = [snapshots[t].momentum_1m for t in tickers if t in snapshots]
+        if vols:
+            vol = float(sum(vols) / len(vols))
+        if moms:
+            expected = max(-0.5, min(0.5, float(sum(moms) / len(moms)) / 12.0))
+
+    proj = MonteCarloProjection(
+        current_value=valuation.total_value,
+        annual_return=expected,
+        annual_vol=vol,
+        horizon_years=horizon_years,
+        n_simulations=n_simulations,
+    )
+    return proj.run()
 
 @router.get(
     "/{portfolio_id}/performance",

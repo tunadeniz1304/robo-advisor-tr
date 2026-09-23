@@ -376,4 +376,45 @@ def _normal_ppf(prob: float) -> float:
     return -num / den
 
 
-__all__ = ["AnalyticsService", "ValuationResult", "ValuationItem"]
+class MonteCarloProjection:
+    """Stochastic portfolio projection via geometric Brownian motion.
+
+    Simulates ``n_simulations`` independent value paths over a horizon using
+    the portfolio's current value, expected annual return, and annualised
+    volatility. Returns quantile summary (5th/50th/95th percentiles) for
+    planning conversations (goal shortfall risk, retirement style projections)
+    — the same family of output robo-advisors surface to customers.
+    """
+
+    def __init__(self, current_value: float, annual_return: float, annual_vol: float, horizon_years: float, n_simulations: int = 2000) -> None:
+        self.current = float(current_value)
+        self.mu = float(annual_return)
+        self.sigma = float(annual_vol)
+        self.horizon = float(horizon_years)
+        self.n = int(n_simulations)
+
+    def run(self, rng: np.random.Generator | None = None) -> dict[str, object]:
+        """Simulate and return percentile endpoints of final wealth."""
+        if self.current <= 0 or self.horizon <= 0:
+            return {"current_value": self.current, "simulations": 0, "p5": self.current, "p50": self.current, "p95": self.current}
+        rng = rng or np.random.default_rng()
+        steps = max(1, int(self.horizon * TRADING_DAYS))
+        dt = self.horizon / steps
+        # Paths: (sims, steps) compounding with GBM drift  mu - 0.5*sigma^2.
+        shocks = rng.normal(0.0, 1.0, size=(self.n, steps))
+        log_ret = (self.mu - 0.5 * self.sigma**2) * dt + self.sigma * np.sqrt(dt) * shocks
+        final = self.current * np.exp(np.sum(log_ret, axis=1))
+        p5, p50, p95 = np.percentile(final, [5, 50, 95])
+        return {
+            "current_value": round(self.current, 2),
+            "horizon_years": self.horizon,
+            "annual_return": round(self.mu, 6),
+            "annual_volatility": round(self.sigma, 6),
+            "simulations": self.n,
+            "p5": round(float(p5), 2),
+            "p50": round(float(p50), 2),
+            "p95": round(float(p95), 2),
+        }
+
+
+__all__ = ["AnalyticsService", "MonteCarloProjection", "ValuationResult", "ValuationItem"]
