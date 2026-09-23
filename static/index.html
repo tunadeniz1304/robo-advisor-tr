@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Otonom Finansal Danışman — Yönetim Paneli</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">OF</span>
+      <div>
+        <h1>Otonom Finansal Danışman</h1>
+        <p class="sub">LangGraph · Markowitz MPT · Gerçek LLM analizi</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="api-status" class="badge badge--pending">API kontrol ediliyor…</span>
+      <button id="btn-refresh" class="btn btn--ghost" type="button">Yenile</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel panel--sidebar">
+      <h2>Müşteriler</h2>
+      <button id="btn-new-customer" class="btn btn--primary btn--block" type="button">
+        + Yeni Müşteri
+      </button>
+      <ul id="customer-list" class="customer-list" aria-label="Müşteri listesi"></ul>
+    </aside>
+
+    <section class="content">
+      <div id="empty-state" class="empty-state">
+        <p>Soldan bir müşteri seçin veya yeni müşteri oluşturun.</p>
+      </div>
+
+      <!-- Müşteri detayı -->
+      <div id="customer-detail" class="detail hidden">
+        <div class="detail__head">
+          <h2 id="customer-name">—</h2>
+          <div class="detail__meta">
+            <span id="customer-email" class="muted">—</span>
+            <span class="risk-chip" id="risk-chip">Risk: —</span>
+          </div>
+        </div>
+
+        <div id="risk-box" class="card risk-box hidden">
+          <h3>Dinamik Risk Profili</h3>
+          <div class="risk-grid">
+            <div><span class="muted">Skor</span><strong id="risk-score">—</strong></div>
+            <div><span class="muted">Kategori</span><strong id="risk-category">—</strong></div>
+            <div><span class="muted">Özkaynak tavanı</span><strong id="risk-ceiling">—</strong></div>
+          </div>
+          <p id="risk-rationale" class="muted small"></p>
+        </div>
+
+        <h3>Portföyler</h3>
+        <button id="btn-new-portfolio" class="btn btn--secondary" type="button">
+          + Yeni Portföy
+        </button>
+        <div id="portfolio-list" class="portfolio-list"></div>
+
+        <h3>Danışman Kayıtları (Audit Trail)</h3>
+        <div id="runs-list" class="runs-list"><p class="muted small">Kayıt yok.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modallar -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <button id="modal-close" class="modal__close" type="button" aria-label="Kapat">&times;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

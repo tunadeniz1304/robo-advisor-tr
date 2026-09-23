@@ -106,4 +106,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(advisor_risk.router, prefix=api_prefix)
     app.include_router(runs.router, prefix=api_prefix)
 
+    # --- Frontend dashboard (sürekli geliştirme) ----------------------------
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @app.get("/", include_in_schema=False)
+        async def dashboard() -> FileResponse:
+            """Serve the single-page yönetim paneli."""
+            return FileResponse(static_dir / "index.html")
+
     return app
