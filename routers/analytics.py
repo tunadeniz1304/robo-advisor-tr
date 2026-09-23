@@ -127,6 +127,39 @@ async def get_valuation(
 
 
 @router.get(
+    "/{portfolio_id}/drift",
+    summary="Portföy sapmasını hedef ağırlıklara göre ölç",
+    description=(
+        "Band tabanlı yeniden dengeleme göstergesi: her varlığın gerçek "
+        "ağırlığı hedef ağırlığa göre ne kadar sapmış; sapma trigger band'ını "
+        "aşan varlık varsa needs_rebalance=true döner."
+    ),
+)
+async def get_drift(
+    request: Request,
+    portfolio_id: int,
+    session: SessionDep,
+    trigger_band: Annotated[float, Query(ge=0.0, le=0.5)] = 0.05,
+) -> dict[str, object]:
+    """Return drift analysis vs an optional target allocation."""
+    portfolio = await _get_portfolio_or_404(session, portfolio_id)
+    del request
+
+    market = MarketService(YFinanceSource())
+    tickers = [t for t in portfolio.holdings if portfolio.holdings.get(t, 0) > 0]
+    snapshots = await market.fetch_snapshots(tickers) if tickers else {}
+
+    return AnalyticsService().drift_analysis(
+        portfolio_id=portfolio.id,
+        cash=float(portfolio.cash),
+        holdings=dict(portfolio.holdings or {}),
+        snapshots=snapshots,
+        target_weights={},
+        trigger_band=trigger_band,
+    )
+
+
+@router.get(
     "/{portfolio_id}/performance",
     response_model=PerformanceOut,
     summary="Portföy performans metrikleri (Sharpe, VaR, max drawdown)",
