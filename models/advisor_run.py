@@ -18,17 +18,14 @@ the audit record is immutable even if holdings later change.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database import Base
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+from models.base import utcnow
 
 
 class AdvisorRun(Base):
@@ -50,7 +47,7 @@ class AdvisorRun(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="success")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Timestamps.
-    created_at: Mapped[datetime] = mapped_column(index=True, default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(index=True, default=utcnow)
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"<AdvisorRun id={self.id} portfolio_id={self.portfolio_id} status={self.status}>"

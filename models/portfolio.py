@@ -2,31 +2,29 @@
 
 A portfolio belongs to exactly one customer and holds:
 
-    * ``cash`` — available nakit (TL); the buying power for rebalancing.
-    * ``holdings`` — current positions as a JSON map ``{ticker: quantity}``.
+    * ``cash`` — available cash in ``currency`` (exact decimal).
+    * ``holdings`` — current positions as a JSON map ``{symbol: quantity}``.
 
-Rebalancing performed by the Portfolio Manager updates ``holdings`` (SQL
-UPDATE) and records one row per side-change into the ``transactions`` table
-(SQL INSERT), keeping the ledger consistent with the realized positions.
+All mutations of ``cash``/``holdings`` go through the ledger service so that
+positions, cash, tax lots and the transaction ledger stay consistent.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
+from core.money import Money
+from models.base import utcnow
 
 if TYPE_CHECKING:
     from models.customer import Customer
     from models.transaction import Transaction
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Portfolio(Base):
@@ -43,13 +41,13 @@ class Portfolio(Base):
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="TRY")
-    cash: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cash: Mapped[Decimal] = mapped_column(Money(), nullable=False, default=Decimal("0"))
 
-    # Varlık dağılımı: {ticker: quantity} — JSON sütunu.
+    # Varlık dağılımı: {symbol: quantity} — JSON sütunu.
     holdings: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=_utcnow, onupdate=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=utcnow, onupdate=utcnow)
 
     # --- İlişkiler ------------------------------------------------------------
     customer: Mapped[Customer] = relationship(back_populates="portfolios")
