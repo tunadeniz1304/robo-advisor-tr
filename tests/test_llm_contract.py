@@ -114,7 +114,8 @@ def test_defaults_and_timeout_merge(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("core.config.load_dotenv_file", lambda *a, **k: None)
     monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "7")
     s = Settings.load()
-    assert s.llm_base_url == "https://evren-llmapi.ssyz.org.tr/v1"
+    # v2: kodda iç sunucu adresi yok; genel bir varsayılan, gerçek adres yalnız .env'den gelir.
+    assert s.llm_base_url == "https://api.deepseek.com"
     assert s.llm_model == "deepseek-v4-flash"
     assert s.llm_timeout_seconds == 7.0
     assert s.request_timeout_seconds == 7.0

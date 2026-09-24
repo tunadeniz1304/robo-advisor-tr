@@ -102,13 +102,16 @@ def _tracked_files() -> list[Path]:
     return [ROOT / line for line in out.splitlines() if line]
 
 
+INTERNAL_HOST_MARKER = "ss" + "yz"  # iç LLM sunucusunun alan adı parçası (dosyada düz yazılmaz)
+
+
 def test_internal_llm_host_is_not_in_tracked_files() -> None:
     hits = []
     for path in _tracked_files():
         if path.suffix in {".gz", ".png", ".jpg", ".ico", ".parquet"} or not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if "ssyz" in text:
+        if INTERNAL_HOST_MARKER in text:
             hits.append(str(path.relative_to(ROOT)))
     assert not hits, hits
 

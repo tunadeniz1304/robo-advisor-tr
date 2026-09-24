@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 # Root of the repository (one level above the ``core`` package).
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
-DEFAULT_LLM_BASE_URL = "https://evren-llmapi.ssyz.org.tr/v1"
+DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
 DEFAULT_LLM_MODEL = "deepseek-v4-flash"
 
 # Alias zincirleri: ilk dolu değer kazanır.
