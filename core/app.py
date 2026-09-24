@@ -175,6 +175,7 @@ def create_app(
         auth,
         customers,
         goals,
+        insights,
         llm,
         market,
         optimization,
@@ -204,6 +205,7 @@ def create_app(
         optimization,
         goals,
         reports,
+        insights,
     ):
         app.include_router(module.router, prefix=api_prefix)
     app.include_router(system.api_router, prefix=api_prefix)

@@ -75,6 +75,40 @@ async def persist_prices_job(container: Any) -> int:
     return int(await container.market.persist_prices())
 
 
+async def autopilot_job(container: Any) -> int:
+    """Sweep idle cash for portfolios with Autopilot enabled."""
+    from models import AutopilotSetting
+    from services.behavior import sweep
+
+    async with session_factory() as session:
+        ids = (
+            (
+                await session.execute(
+                    select(AutopilotSetting.portfolio_id).where(AutopilotSetting.enabled.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+    done = 0
+    for pid in ids:
+        try:
+            done += int((await sweep(container.proposals, pid)).get("swept", False))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("autopilot_job_failed", portfolio_id=pid, error_type=type(exc).__name__)
+    return done
+
+
+async def nudges_job(container: Any) -> int:
+    """Refresh behavioural nudges for every customer."""
+    from models import Customer
+    from services.behavior import generate_nudges
+
+    async with session_factory() as session:
+        ids = (await session.execute(select(Customer.id))).scalars().all()
+    return sum([len(await generate_nudges(container.market, cid)) for cid in ids])
+
+
 def build_scheduler(
     container: Any,
     extra_jobs: list[tuple[str, Callable[[], Awaitable[Any]], dict[str, Any]]] | None = None,
@@ -109,6 +143,8 @@ def build_scheduler(
     sched.add_job(
         persist_prices_job, "cron", hour=19, minute=0, args=[container], id="persist_prices"
     )
+    sched.add_job(autopilot_job, "cron", hour=9, minute=30, args=[container], id="autopilot_sweep")
+    sched.add_job(nudges_job, "cron", hour=9, minute=0, args=[container], id="nudges")
     for job_id, func, trigger_kwargs in extra_jobs or []:
         sched.add_job(func, id=job_id, **trigger_kwargs)
     return sched

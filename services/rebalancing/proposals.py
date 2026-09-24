@@ -443,6 +443,70 @@ class ProposalService:
         )
         return ProposalOutcome(proposal, True, plan.drift)
 
+    async def create_custom(
+        self,
+        portfolio_id: int,
+        buys: dict[str, float],
+        *,
+        source: str,
+        trigger: str,
+        rationale: str,
+        actor: str = "system",
+    ) -> RebalanceProposal:
+        """Persist a simple buy-only proposal (e.g. Autopilot cash sweep)."""
+        prices = await self.current_prices(list(buys))
+        costs = self._broker._costs  # noqa: SLF001 - aynı maliyet modeli
+        orders = []
+        total_cost = 0.0
+        for sym, amount in buys.items():
+            price = prices[sym]
+            qty = round(amount / price, 6)
+            cost = costs.estimate(sym, qty * price)
+            total_cost += cost.total
+            orders.append(
+                {
+                    "symbol": sym,
+                    "ticker": sym,
+                    "side": "BUY",
+                    "quantity": qty,
+                    "price": price,
+                    "amount": round(qty * price, 2),
+                    "cost": cost.to_dict(),
+                }
+            )
+        async with self._lock(portfolio_id):
+            async with session_factory() as session:
+                portfolio = await session.get(Portfolio, portfolio_id)
+                if portfolio is None:
+                    raise ProposalError(f"Portfolio {portfolio_id} bulunamadı.", 404)
+                proposal = RebalanceProposal(
+                    portfolio_id=portfolio_id,
+                    customer_id=portfolio.customer_id,
+                    status=PROPOSAL_PENDING,
+                    source=source,
+                    trigger=trigger,
+                    orders=orders,
+                    prices={s: prices[s] for s in buys},
+                    estimated_cost=to_decimal(total_cost),
+                    rationale=rationale,
+                    llm_mode="demo",
+                    expires_at=utcnow()
+                    + timedelta(hours=float(self._p.rebalance.get("proposal_ttl_hours", 24))),
+                )
+                session.add(proposal)
+                await session.commit()
+                await session.refresh(proposal)
+        REBALANCE_TOTAL.labels(event="proposed").inc()
+        await record_audit(
+            actor=actor,
+            action="proposal.created",
+            entity_type="rebalance_proposal",
+            entity_id=proposal.id,
+            customer_id=proposal.customer_id,
+            payload={"source": source, "trigger": trigger, "orders": len(orders)},
+        )
+        return proposal
+
     # -- approve / reject ---------------------------------------------------------------
 
     async def get(self, proposal_id: int) -> RebalanceProposal:

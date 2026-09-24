@@ -46,6 +46,7 @@ class RejectBody(BaseModel):
     summary="Yeniden dengeleme önerisi oluştur (onay bekler)",
 )
 async def rebalance_portfolio(
+    request: Request,
     portfolio_id: int,
     session: SessionDep,
     user: UserDep,
@@ -62,6 +63,9 @@ async def rebalance_portfolio(
         if exc.status_code == status.HTTP_404_NOT_FOUND:
             raise HTTPException(status_code=422, detail=exc.detail) from exc
         raise
+    from services.regime import cached_regime
+
+    regime = await cached_regime(request.app.state.container)
     result = await service.start(
         portfolio_id,
         customer_id,
@@ -71,6 +75,7 @@ async def rebalance_portfolio(
         method=method,
         override_ack=override_ack,
         idempotency_key=idempotency_key,
+        regime={"label": regime.get("label"), "tilt": regime.get("tilt", 0.0)},
     )
     if result.error:
         code = 403 if "uygun değildir" in result.error else status.HTTP_422_UNPROCESSABLE_CONTENT
