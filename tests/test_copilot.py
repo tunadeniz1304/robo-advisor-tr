@@ -197,7 +197,7 @@ def test_sse_stream_and_permissions(client: TestClient) -> None:
         client.post(
             "/api/v1/copilot/ask", headers=h, json={"message": "x portföy", "customer_id": cid}
         ).status_code
-        == 403
+        == 404  # v2: yabancı kaynak = 404 (kimlik tahmini yok)
     )
 
 

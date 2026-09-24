@@ -139,7 +139,7 @@ def test_customer_approves_own_proposal_only(client: TestClient) -> None:
     h = auth_headers(reg["access_token"])
     assert (
         client.post(f"/api/v1/proposals/{other['proposal_id']}/approve", headers=h).status_code
-        == 403
+        == 404  # v2: yabancı kaynak = 404 (kimlik tahmini yok)
     )
     pid = client.get("/api/v1/portfolios", headers=h).json()[0]["id"]
     own = client.post(

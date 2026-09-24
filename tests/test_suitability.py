@@ -191,7 +191,7 @@ def test_customer_submits_own_profile_only(client: TestClient) -> None:
     no = client.post(
         f"/api/v1/customers/{other}/risk-profile", headers=h, json={"answers": answers()}
     )
-    assert no.status_code == 403
+    assert no.status_code == 404  # v2: yabancı kaynak = 404 (kimlik tahmini yok)
     assert client.get("/api/v1/suitability/questionnaire", headers=h).status_code == 200
 
 

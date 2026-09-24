@@ -43,7 +43,9 @@ async def _context(
     if body.portfolio_id is not None:
         p = await load_portfolio_checked(session, user, body.portfolio_id)
         if p.customer_id != customer_id:
-            raise HTTPException(status_code=403, detail="Portföy bu müşteriye ait değil.")
+            raise HTTPException(
+                status_code=404, detail=f"Portfolio {body.portfolio_id} bulunamadı."
+            )
     return CopilotContext(
         request.app.state.container, customer_id, body.portfolio_id, user.id, user.role
     )

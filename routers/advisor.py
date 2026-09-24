@@ -85,9 +85,13 @@ async def rebalance_portfolio(
 
 async def _load_checked(session: SessionDep, user: UserDep, proposal_id: int) -> RebalanceProposal:
     proposal = await session.get(RebalanceProposal, proposal_id)
+    missing = HTTPException(status_code=404, detail=f"Öneri {proposal_id} bulunamadı.")
     if proposal is None:
-        raise HTTPException(status_code=404, detail=f"Öneri {proposal_id} bulunamadı.")
-    await load_portfolio_checked(session, user, proposal.portfolio_id)
+        raise missing
+    try:
+        await load_portfolio_checked(session, user, proposal.portfolio_id)
+    except HTTPException as exc:
+        raise missing from exc  # başkasının önerisi: var olmayanla aynı yanıt
     return proposal
 
 

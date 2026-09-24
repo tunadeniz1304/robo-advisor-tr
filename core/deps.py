@@ -1,9 +1,15 @@
 """FastAPI dependencies: container access, authentication and authorization.
 
-Ownership rules (enforced here, tested in ``tests/test_auth.py``):
+Ownership rules (enforced here, tested in ``tests/test_auth_security.py``):
     * ``admin``    — every customer/portfolio.
     * ``danisman`` — customers whose ``advisor_user_id`` is the advisor.
     * ``musteri``  — only the customer linked to the user account.
+
+The token only identifies the user: role, customer link and the active flag
+are re-read from the database on every request, so a demoted or disabled
+user loses access immediately (not when the token expires). A resource the
+caller may not see answers **404** exactly like a missing one, so IDs cannot
+be probed.
 """
 
 from __future__ import annotations
@@ -54,14 +60,16 @@ def get_container(request: Request) -> Any:
     return request.app.state.container
 
 
-def get_current_user(
+async def get_current_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    session: SessionDep,
 ) -> CurrentUser:
-    """Resolve and validate the bearer access token.
+    """Resolve the bearer token and refresh the principal from the database.
 
     Raises:
-        HTTPException: 401 when the token is missing or invalid.
+        HTTPException: 401 when the token is missing/invalid or the user no
+            longer exists or is disabled.
     """
     if credentials is None or not credentials.credentials:
         raise HTTPException(
@@ -78,10 +86,17 @@ def get_current_user(
             detail=str(exc),
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
-    cid = payload.get("cid")
-    return CurrentUser(
-        id=int(payload["sub"]), role=str(payload["role"]), customer_id=int(cid) if cid else None
-    )
+    from models import User
+
+    row = await session.get(User, int(payload["sub"]))
+    if row is None or not row.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Oturum geçersiz.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # Rol ve müşteri bağı token'dan değil, veritabanından (eskimiş token yetki taşımaz).
+    return CurrentUser(id=int(row.id), role=str(row.role), customer_id=row.customer_id)
 
 
 UserDep = Annotated[CurrentUser, Depends(get_current_user)]
@@ -101,10 +116,9 @@ def require_roles(*roles: str) -> Any:
     return Depends(_check)
 
 
-def forbidden() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN, detail="Bu kayda erişim yetkiniz yok."
-    )
+def not_found(kind: str, ident: int) -> HTTPException:
+    """Same answer for "missing" and "not yours" (no ID probing)."""
+    return HTTPException(status_code=404, detail=f"{kind} {ident} bulunamadı.")
 
 
 def can_access_customer(user: CurrentUser, customer: Any) -> bool:
@@ -117,29 +131,27 @@ def can_access_customer(user: CurrentUser, customer: Any) -> bool:
 
 
 async def load_customer_checked(session: AsyncSession, user: CurrentUser, customer_id: int) -> Any:
-    """Fetch a customer and enforce access (404 / 403)."""
+    """Fetch a customer and enforce access (404 for missing or foreign)."""
     from models import Customer
 
     customer = await session.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(status_code=404, detail=f"Customer {customer_id} bulunamadı.")
-    if not can_access_customer(user, customer):
-        raise forbidden()
+    if customer is None or not can_access_customer(user, customer):
+        raise not_found("Customer", customer_id)
     return customer
 
 
 async def load_portfolio_checked(
     session: AsyncSession, user: CurrentUser, portfolio_id: int
 ) -> Any:
-    """Fetch a portfolio and enforce access through its owner (404 / 403)."""
+    """Fetch a portfolio and enforce access through its owner (404 for missing or foreign)."""
     from models import Customer, Portfolio
 
     portfolio = await session.get(Portfolio, portfolio_id)
     if portfolio is None:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} bulunamadı.")
+        raise not_found("Portfolio", portfolio_id)
     customer = await session.get(Customer, portfolio.customer_id)
     if customer is None or not can_access_customer(user, customer):
-        raise forbidden()
+        raise not_found("Portfolio", portfolio_id)
     return portfolio
 
 
@@ -152,5 +164,6 @@ __all__ = [
     "get_current_user",
     "load_customer_checked",
     "load_portfolio_checked",
+    "not_found",
     "require_roles",
 ]
