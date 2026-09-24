@@ -11,7 +11,9 @@ bounds per instrument and linear lower/upper bounds on asset-class sums
 * :func:`min_cvar` — Rockafellar–Uryasev CVaR minimisation as a linear
   programme (``scipy.optimize.linprog``/HiGHS).
 * :func:`mean_variance` — maximum Sharpe ratio against a real risk-free rate.
-* :func:`black_litterman_posterior` — BL posterior with Idzorek confidences.
+* :func:`idzorek_omega` — Idzorek (2005) view uncertainties from confidences,
+  solved numerically per view.
+* :func:`black_litterman_posterior` — BL posterior (He–Litterman form).
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.cluster.hierarchy import leaves_list, linkage
-from scipy.optimize import linprog, minimize
+from scipy.optimize import brentq, linprog, minimize
 from scipy.spatial.distance import squareform
 
 _EPS = 1e-12
@@ -306,6 +308,101 @@ class BLResult:
     omega: np.ndarray
 
 
+def _single_view_posterior(
+    cov: np.ndarray, prior: np.ndarray, pk: np.ndarray, qk: float, omega_k: float, tau: float
+) -> np.ndarray:
+    """Posterior mean with one view (Woodbury form, stable for ω → 0)."""
+    tau_cov_p = tau * cov @ pk
+    denom = float(pk @ tau_cov_p) + omega_k
+    return np.asarray(prior + tau_cov_p * (qk - float(pk @ prior)) / denom)
+
+
+def idzorek_omega(
+    cov: np.ndarray,
+    market_weights: np.ndarray,
+    p: np.ndarray,
+    q: np.ndarray,
+    confidences: np.ndarray,
+    *,
+    tau: float = 0.05,
+    risk_aversion: float = 2.5,
+    rf: float = 0.0,
+) -> np.ndarray:
+    """Idzorek (2005) Ω: one 1-D root search per view.
+
+    For view *k* alone, the 100 %-confidence posterior (ω_k = 0) gives the
+    implied weights ``w_100 = (δΣ)⁻¹(μ_100 − r_f)``. Idzorek chooses ω_k so
+    that the tilt of the implied weights equals the stated confidence share
+    of that full tilt::
+
+        (w(ω_k) − w_mkt) · (w_100 − w_mkt) / ‖w_100 − w_mkt‖² = c_k
+
+    The ratio is strictly decreasing in ω_k, so ``brentq`` finds the unique
+    root. With unconstrained implied weights the root coincides with the
+    closed form ``τ(1−c_k)/c_k · p_kΣp_kᵀ`` that PyPortfolioOpt uses for
+    ``omega="idzorek"`` (derivation in Walters, 2014); the tests check both.
+    c_k = 0 means "ignore the view" (ω_k = 1e6 · p_kΣp_kᵀ).
+
+    Args:
+        cov: Annualised covariance (n×n).
+        market_weights: Equilibrium weights (n).
+        p: View pick matrix (k×n).
+        q: View returns (k), annual total returns.
+        confidences: Confidence per view in [0, 1] (k).
+        tau: Prior uncertainty scale.
+        risk_aversion: δ.
+        rf: Risk-free rate (views and prior are total returns).
+
+    Returns:
+        Diagonal Ω (k×k).
+    """
+    prior = rf + risk_aversion * cov @ market_weights
+    omegas = [
+        _idzorek_view_omega(
+            cov, market_weights, prior, pk, float(qk), float(ck), tau, risk_aversion, rf
+        )
+        for pk, qk, ck in zip(
+            np.atleast_2d(p), np.atleast_1d(q), np.atleast_1d(confidences), strict=True
+        )
+    ]
+    return np.diag(omegas)
+
+
+def _idzorek_view_omega(
+    cov: np.ndarray,
+    market_weights: np.ndarray,
+    prior: np.ndarray,
+    pk: np.ndarray,
+    qk: float,
+    confidence: float,
+    tau: float,
+    risk_aversion: float,
+    rf: float,
+) -> float:
+    """ω_k of one view (see :func:`idzorek_omega`)."""
+    view_var = float(pk @ cov @ pk)
+    c = float(np.clip(confidence, 0.0, 1.0))
+    if c <= 1e-9:
+        return 1e6 * view_var
+    c = min(c, 1.0 - 1e-9)
+    delta_cov = risk_aversion * cov
+    w_100 = np.linalg.solve(delta_cov, _single_view_posterior(cov, prior, pk, qk, 0.0, tau) - rf)
+    full_tilt = w_100 - market_weights
+    norm = float(full_tilt @ full_tilt)
+    if norm <= _EPS:  # görüş dengeyle aynı: güven ağırlıkları değiştirmez
+        return tau * view_var * (1.0 - c) / c
+
+    def gap(omega_k: float) -> float:
+        mu = _single_view_posterior(cov, prior, pk, qk, omega_k, tau)
+        tilt = np.linalg.solve(delta_cov, mu - rf) - market_weights
+        return float(tilt @ full_tilt) / norm - c
+
+    hi = tau * view_var
+    while gap(hi) > 0:
+        hi *= 10.0
+    return float(brentq(gap, 0.0, hi, xtol=1e-14, rtol=1e-12, maxiter=500))
+
+
 def black_litterman_posterior(
     cov: np.ndarray,
     market_weights: np.ndarray,
@@ -316,30 +413,34 @@ def black_litterman_posterior(
     risk_aversion: float = 2.5,
     tau: float = 0.05,
     rf: float = 0.0,
+    omega: np.ndarray | None = None,
 ) -> BLResult:
-    """Black-Litterman posterior returns with Idzorek-style confidences.
+    """Black-Litterman posterior returns; Ω defaults to Idzorek's method.
 
-    ``π = rf + δ Σ w_mkt``; ``Ω_kk = (1−c_k)/c_k · τ p_k Σ p_kᵀ`` (Idzorek /
-    Walters closed form: 100 % confidence → the view is fully expressed,
-    0 % → ignored). Posterior:
-    ``μ = [(τΣ)⁻¹ + PᵀΩ⁻¹P]⁻¹ [(τΣ)⁻¹π + PᵀΩ⁻¹Q]``.
+    ``π = rf + δ Σ w_mkt``. Ω comes from :func:`idzorek_omega` (numerical,
+    per view) unless given explicitly. Posterior:
+    ``μ = [(τΣ)⁻¹ + PᵀΩ⁻¹P]⁻¹ [(τΣ)⁻¹π + PᵀΩ⁻¹Q]``,
+    posterior covariance ``Σ + [(τΣ)⁻¹ + PᵀΩ⁻¹P]⁻¹``.
 
     Args:
         cov: Annualised covariance (n×n).
         market_weights: Equilibrium (strategic) weights (n).
         p: View pick matrix (k×n).
         q: View returns (k), annual, TL based.
-        confidences: View confidences in (0, 1) (k).
+        confidences: View confidences in [0, 1] (k).
         risk_aversion: δ.
         tau: Uncertainty scaling of the prior.
         rf: Risk-free rate added to the equilibrium excess returns.
+        omega: Optional explicit Ω (k×k).
     """
     prior = rf + risk_aversion * cov @ market_weights
     if p.size == 0:
         return BLResult(prior, prior.copy(), cov, np.zeros((0, 0)))
-    c = np.clip(confidences, 1e-4, 1.0 - 1e-6)
-    view_var = np.array([float(pk @ (tau * cov) @ pk) for pk in p])
-    omega = np.diag((1.0 - c) / c * view_var)
+    if omega is None:
+        conf = np.clip(confidences, 0.0, 1.0 - 1e-6)
+        omega = idzorek_omega(
+            cov, market_weights, p, q, conf, tau=tau, risk_aversion=risk_aversion, rf=rf
+        )
     tau_cov_inv = np.linalg.inv(tau * cov)
     omega_inv = np.linalg.inv(omega)
     m = np.linalg.inv(tau_cov_inv + p.T @ omega_inv @ p)
@@ -354,6 +455,7 @@ __all__ = [
     "black_litterman_posterior",
     "historical_cvar",
     "hrp",
+    "idzorek_omega",
     "hrp_weights",
     "mean_variance",
     "min_cvar",

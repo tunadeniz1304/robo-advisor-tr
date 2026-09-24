@@ -332,15 +332,23 @@ class OptimizationService:
             p[k, symbols.index(v.symbol)] = 1.0
         q = np.array([v.expected_return for v in usable])
         conf = np.array([v.confidence for v in usable])
+        delta = float(self._policy.optimization.get("bl_risk_aversion", 2.5))
+        tau = float(self._policy.optimization.get("bl_tau", 0.05))
+        omega = (
+            st.idzorek_omega(cov, w_mkt, p, q, conf, tau=tau, risk_aversion=delta, rf=rf)
+            if usable
+            else np.zeros((0, 0))
+        )
         res = st.black_litterman_posterior(
             cov,
             w_mkt,
             p,
             q,
             conf,
-            risk_aversion=float(self._policy.optimization.get("bl_risk_aversion", 2.5)),
-            tau=float(self._policy.optimization.get("bl_tau", 0.05)),
+            risk_aversion=delta,
+            tau=tau,
             rf=rf,
+            omega=omega if usable else None,
         )
         w = st.mean_variance(res.posterior, res.posterior_cov, rf, cons)
         w_prior = st.mean_variance(res.prior, cov, rf, cons)
@@ -355,6 +363,8 @@ class OptimizationService:
                 for v in usable
             ],
             "ignored_views": [v.symbol for v in views if v.symbol not in symbols],
+            "omega_method": "idzorek_2005_numeric",
+            "omega": [round(float(x), 8) for x in np.diag(res.omega)],
             "prior_returns": {
                 s: round(float(x), 6) for s, x in zip(symbols, res.prior, strict=True)
             },

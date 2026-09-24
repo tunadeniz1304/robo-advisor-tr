@@ -7,3 +7,5 @@ pytest-cov>=5.0.0
 respx>=0.21.0
 ruff>=0.6.0
 mypy>=1.10.0
+# Referans karşılaştırma (yalnızca testler): Black-Litterman Ω = Idzorek
+pyportfolioopt>=1.5.5
