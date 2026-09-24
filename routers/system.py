@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from core.database import session_factory
+from core.deps import UserDep
 from core.metrics import render_metrics
 
 router = APIRouter(tags=["system"])
@@ -58,6 +59,24 @@ async def health_ready(request: Request) -> JSONResponse:
 async def health_v1(request: Request) -> dict[str, str]:
     """Versioned health probe."""
     return {"status": "ok", "version": request.app.state.settings.version}
+
+
+@api_router.get("/data/quality", summary="Veri kalitesi (boşluk, sıçrama, bölünme, bayatlık)")
+async def data_quality(request: Request, user: UserDep) -> dict[str, Any]:
+    """Quality checks of every served price series with its provenance."""
+    return await request.app.state.container.market.quality_report()  # type: ignore[no-any-return]
+
+
+@api_router.get("/system/status", summary="Arayüz rozetleri: veri, veri kalitesi, AI modu")
+async def system_status(request: Request, user: UserDep) -> dict[str, Any]:
+    """Real state behind the UI badges (data mode, quality, AI mode)."""
+    container = request.app.state.container
+    quality = await container.market.quality_report()
+    return {
+        "data": container.market.data_mode(),
+        "quality": {"status": quality["status"], "counts": quality["counts"]},
+        "ai": {"mode": container.gateway.mode},
+    }
 
 
 @router.get("/metrics", include_in_schema=False)
