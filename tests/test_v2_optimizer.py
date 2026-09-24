@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from services.market_data.universe import BY_SYMBOL
 from services.optimization import strategies as st
 
 
@@ -135,3 +136,29 @@ def test_hrp_and_min_cvar_differ_in_high_vol_regime() -> None:
         for cls, w in res.class_weights.items():
             lo, hi = res.params["class_bounds"][cls]
             assert lo - 1e-6 <= w <= hi + 1e-6
+    # Sınıf içi dağılım da yönteme bağlı (ör. hisse sepeti / döviz / endeks içinde).
+    intra = []
+    for cls in ("bist_hisse", "doviz", "bist_endeks"):
+        members = [s for s in keys if BY_SYMBOL[s].asset_class == cls]
+        tot_h = sum(hrp.weights.get(s, 0.0) for s in members)
+        tot_c = sum(cvar.weights.get(s, 0.0) for s in members)
+        if tot_h > 1e-6 and tot_c > 1e-6:
+            intra.append(
+                sum(
+                    abs(hrp.weights.get(s, 0) / tot_h - cvar.weights.get(s, 0) / tot_c)
+                    for s in members
+                )
+            )
+    assert intra and max(intra) >= 0.2, intra
+
+
+def test_binding_constraints_are_reported() -> None:
+    from services.optimization.service import OptimizationRequest, OptimizationService
+
+    svc = OptimizationService(market=None)  # type: ignore[arg-type]
+    res = svc.optimize_on_returns(
+        OptimizationRequest(level=3, method="min_cvar"), _high_vol_returns(), rf=0.40
+    )
+    binding = res.params["binding_constraints"]
+    # Riski en düşük sınıf (para piyasası) üst sınırda: bu, yöntemin değil politikanın sonucu.
+    assert any(b["type"] == "class_upper" and b["name"] == "para_piyasasi" for b in binding)
