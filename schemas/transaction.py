@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class Side(StrEnum):
@@ -16,13 +17,14 @@ class Side(StrEnum):
 
 
 class TransactionCreate(BaseModel):
-    """Payload for placing a manual transaction via the CRUD API."""
+    """Payload for placing a manual transaction via the API."""
 
     portfolio_id: int = Field(gt=0)
-    ticker: str = Field(min_length=1, max_length=16)
+    ticker: str = Field(min_length=1, max_length=24)
     side: Side
     quantity: float = Field(gt=0.0)
     price: float = Field(gt=0.0)
+    fees: float = Field(default=0.0, ge=0.0)
     reason: str = Field(default="manual", max_length=32)
 
     @field_validator("side", mode="before")
@@ -41,9 +43,20 @@ class TransactionRead(BaseModel):
     id: int
     portfolio_id: int
     ticker: str
-    side: Side  # type: ignore[assignment]
-    quantity: float
-    price: float
-    total_amount: float
+    side: Side
+    quantity: Decimal
+    price: Decimal
+    total_amount: Decimal
+    fees: Decimal = Decimal("0")
+    tax: Decimal = Decimal("0")
+    currency: str = "TRY"
     reason: str
     executed_at: datetime
+
+    @field_serializer("quantity")
+    def _qty(self, value: Decimal) -> float:
+        return float(value)
+
+    @field_serializer("price", "total_amount", "fees", "tax")
+    def _money(self, value: Decimal) -> float:
+        return round(float(value), 6)

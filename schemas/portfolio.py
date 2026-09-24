@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from core.money import SUPPORTED_CURRENCIES
 
 
 class PortfolioCreate(BaseModel):
@@ -13,19 +16,22 @@ class PortfolioCreate(BaseModel):
 
     customer_id: int = Field(gt=0)
     name: str = Field(min_length=2, max_length=160, examples=["Ana Portföy"])
-    currency: str = Field(default="TRY", min_length=3, max_length=8)
+    currency: str = Field(default="TRY", pattern="^(" + "|".join(SUPPORTED_CURRENCIES) + ")$")
     cash: float = Field(default=0.0, ge=0.0)
-    holdings: dict[str, Any] = Field(default_factory=dict)
+    holdings: dict[str, float] = Field(default_factory=dict)
 
 
 class PortfolioUpdate(BaseModel):
-    """Payload for updating portfolio metadata (holdings/cash are managed by
-    the advisor rebalancing, but exposing them here keeps the CRUD complete)."""
+    """Payload for updating portfolio metadata.
+
+    ``cash``/``holdings`` edits are an administrative correction (staff only);
+    regular changes go through transactions and approved proposals.
+    """
 
     name: str | None = Field(default=None, min_length=2, max_length=160)
-    currency: str | None = Field(default=None, min_length=3, max_length=8)
+    currency: str | None = Field(default=None, pattern="^(" + "|".join(SUPPORTED_CURRENCIES) + ")$")
     cash: float | None = Field(default=None, ge=0.0)
-    holdings: dict[str, Any] | None = None
+    holdings: dict[str, float] | None = None
 
 
 class PortfolioRead(BaseModel):
@@ -37,7 +43,11 @@ class PortfolioRead(BaseModel):
     customer_id: int
     name: str
     currency: str
-    cash: float
+    cash: Decimal
     holdings: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("cash")
+    def _money(self, value: Decimal) -> float:
+        return round(float(value), 2)

@@ -11,11 +11,10 @@ before any rebalancing decision.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from core.database import get_session
-from models import Customer
+from core.deps import SessionDep, UserDep, load_customer_checked
 from services.risk_service import RiskService
 
 router = APIRouter(prefix="/advisor", tags=["advisor"])
@@ -36,23 +35,13 @@ class RiskReport(BaseModel):
     response_model=RiskReport,
     summary="Müşterinin dinamik risk profilini döndür",
 )
-async def get_risk_report(
-    request: Request,
-    customer_id: int,
-    session=Depends(get_session),
-) -> RiskReport:
+async def get_risk_report(customer_id: int, session: SessionDep, user: UserDep) -> RiskReport:
     """Compute and return the dynamic risk assessment of a customer.
 
     The score is derived from the customer's declared tolerance, investment
     horizon and monthly income (see :mod:`services.risk_service`).
     """
-    del request  # reserved for future per-request context (e.g. tenant)
-    customer = await session.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Customer {customer_id} bulunamadı.",
-        )
+    customer = await load_customer_checked(session, user, customer_id)
     assessment = RiskService().assess(customer)
     return RiskReport(
         customer_id=customer.id,

@@ -46,7 +46,7 @@ class MarketDataSource(Protocol):
 class YFinanceSource:
     """Real market data source backed by the Yahoo Finance API (yfinance)."""
 
-    def __init__(self, period: str = "6mo", interval: str = "1d") -> None:
+    def __init__(self, period: str = "5y", interval: str = "1d") -> None:
         self._period = period
         self._interval = interval
 
@@ -125,6 +125,8 @@ class MarketService:
     """
 
     TRADING_DAYS = 252
+    # Beklenen getiri/kovaryans tahmini için tutulan en uzun geçmiş (~5 yıl).
+    MAX_HISTORY_DAYS = 252 * 5
 
     def __init__(
         self,
@@ -210,7 +212,7 @@ class MarketService:
 
         daily_returns = {
             idx.date().isoformat(): float(value)
-            for idx, value in returns.tail(self.TRADING_DAYS).items()
+            for idx, value in returns.tail(self.MAX_HISTORY_DAYS).items()
         }
         logger.debug(
             "symbol_analysed",

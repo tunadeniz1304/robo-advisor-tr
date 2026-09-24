@@ -1,68 +1,79 @@
-"""Transaction CRUD/router (async FastAPI).
+"""Transaction router.
 
-Transactions are primarily created by the Portfolio Manager's rebalancing
-workflow (reason="rebalance"); this router also exposes manual placement and
-read-only ledger queries.
+Manual trades go through :func:`services.ledger.apply_trade`, which updates
+holdings, cash and tax lots atomically with the ledger row (bug #6: manual
+transactions previously did not touch holdings/cash).
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_session
-from models import Portfolio, Transaction
-from schemas.transaction import Side, TransactionCreate, TransactionRead
+from core.deps import SessionDep, UserDep, load_portfolio_checked
+from models import Customer, Portfolio, Transaction
+from schemas.transaction import TransactionCreate, TransactionRead
+from services.ledger import LedgerError, apply_trade
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
-
 
 @router.post("", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
-async def create_transaction(payload: TransactionCreate, session: SessionDep) -> Transaction:
-    """Place a manual transaction on an existing portfolio."""
-    portfolio = await session.get(Portfolio, payload.portfolio_id)
-    if portfolio is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Portfolio {payload.portfolio_id} bulunamadı.",
+async def create_transaction(
+    payload: TransactionCreate, session: SessionDep, user: UserDep
+) -> Transaction:
+    """Place a manual transaction; holdings and cash update atomically."""
+    portfolio = await load_portfolio_checked(session, user, payload.portfolio_id)
+    try:
+        result = await apply_trade(
+            session,
+            portfolio,
+            symbol=payload.ticker.upper(),
+            side=payload.side.value,
+            quantity=payload.quantity,
+            price=payload.price,
+            fees=payload.fees,
+            reason=payload.reason,
         )
-    transaction = Transaction(
-        portfolio_id=payload.portfolio_id,
-        ticker=payload.ticker.upper(),
-        side=payload.side.value if isinstance(payload.side, Side) else str(payload.side),
-        quantity=payload.quantity,
-        price=payload.price,
-        total_amount=round(payload.quantity * payload.price, 4),
-        reason=payload.reason,
-    )
-    session.add(transaction)
+    except LedgerError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     await session.commit()
-    await session.refresh(transaction)
-    return transaction
+    await session.refresh(result.transaction)
+    return result.transaction
 
 
 @router.get("", response_model=list[TransactionRead])
 async def list_transactions(
     session: SessionDep,
+    user: UserDep,
     portfolio_id: Annotated[int | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Transaction]:
-    """List transactions, optionally filtered by portfolio_id."""
-    stmt = select(Transaction).order_by(Transaction.executed_at.desc())
+    """List transactions visible to the caller, optionally by portfolio."""
+    stmt = select(Transaction).order_by(Transaction.executed_at.desc(), Transaction.id.desc())
     if portfolio_id is not None:
+        await load_portfolio_checked(session, user, portfolio_id)
         stmt = stmt.where(Transaction.portfolio_id == portfolio_id)
+    elif not user.is_admin:
+        stmt = stmt.join(Portfolio, Portfolio.id == Transaction.portfolio_id).join(
+            Customer, Customer.id == Portfolio.customer_id
+        )
+        if user.is_advisor:
+            stmt = stmt.where(Customer.advisor_user_id == user.id)
+        else:
+            stmt = stmt.where(Customer.id == (user.customer_id or -1))
     result = await session.execute(stmt.limit(limit).offset(offset))
     return list(result.scalars().all())
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
-async def get_transaction(transaction_id: int, session: SessionDep) -> Transaction:
+async def get_transaction(transaction_id: int, session: SessionDep, user: UserDep) -> Transaction:
     """Fetch a single transaction by id."""
     transaction = await session.get(Transaction, transaction_id)
     if transaction is None:
@@ -70,4 +81,5 @@ async def get_transaction(transaction_id: int, session: SessionDep) -> Transacti
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Transaction {transaction_id} bulunamadı.",
         )
+    await load_portfolio_checked(session, user, transaction.portfolio_id)
     return transaction

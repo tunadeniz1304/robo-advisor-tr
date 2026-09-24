@@ -1,38 +1,30 @@
-"""Customer CRUD router (async FastAPI)."""
+"""Customer CRUD router (async FastAPI, role and ownership aware)."""
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_session
+from core.deps import CurrentUser, SessionDep, UserDep, load_customer_checked, require_roles
 from models import Customer
 from schemas.customer import CustomerCreate, CustomerRead, CustomerUpdate
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
-
-
-async def _get_or_404(session: AsyncSession, customer_id: int) -> Customer:
-    """Fetch a customer by id or raise 404 (single source of truth)."""
-    customer = await session.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Customer {customer_id} bulunamadı.",
-        )
-    return customer
+StaffDep = Annotated[CurrentUser, require_roles("admin", "danisman")]
+AdminDep = Annotated[CurrentUser, require_roles("admin")]
 
 
 @router.post("", response_model=CustomerRead, status_code=status.HTTP_201_CREATED)
-async def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
-    """Create a new customer (Müşteri)."""
-    customer = Customer(**payload.model_dump())
+async def create_customer(payload: CustomerCreate, session: SessionDep, user: StaffDep) -> Customer:
+    """Create a new customer (danışman: automatically assigned to self)."""
+    data = payload.model_dump()
+    if user.is_advisor:
+        data["advisor_user_id"] = user.id
+    customer = Customer(**data)
     session.add(customer)
     try:
         await session.commit()
@@ -49,29 +41,35 @@ async def create_customer(payload: CustomerCreate, session: SessionDep) -> Custo
 @router.get("", response_model=list[CustomerRead])
 async def list_customers(
     session: SessionDep,
+    user: UserDep,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Customer]:
-    """List customers with pagination."""
-    result = await session.execute(
-        select(Customer).order_by(Customer.id).limit(limit).offset(offset)
-    )
+    """List customers visible to the caller (paginated)."""
+    stmt = select(Customer).order_by(Customer.id)
+    if user.is_advisor:
+        stmt = stmt.where(Customer.advisor_user_id == user.id)
+    elif user.is_customer:
+        stmt = stmt.where(Customer.id == (user.customer_id or -1))
+    result = await session.execute(stmt.limit(limit).offset(offset))
     return list(result.scalars().all())
 
 
 @router.get("/{customer_id}", response_model=CustomerRead)
-async def get_customer(customer_id: int, session: SessionDep) -> Customer:
+async def get_customer(customer_id: int, session: SessionDep, user: UserDep) -> Customer:
     """Fetch a single customer by id."""
-    return await _get_or_404(session, customer_id)
+    return await load_customer_checked(session, user, customer_id)  # type: ignore[no-any-return]
 
 
 @router.put("/{customer_id}", response_model=CustomerRead)
 async def update_customer(
-    customer_id: int, payload: CustomerUpdate, session: SessionDep
+    customer_id: int, payload: CustomerUpdate, session: SessionDep, user: UserDep
 ) -> Customer:
     """Update customer fields (only provided fields are changed)."""
-    customer = await _get_or_404(session, customer_id)
+    customer = await load_customer_checked(session, user, customer_id)
     updates = payload.model_dump(exclude_unset=True)
+    if "advisor_user_id" in updates and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Danışman ataması yalnızca yöneticiye açıktır.")
     for field, value in updates.items():
         setattr(customer, field, value)
     try:
@@ -83,12 +81,12 @@ async def update_customer(
             detail="Bu e-posta adresi başka bir müşteriye ait.",
         ) from exc
     await session.refresh(customer)
-    return customer
+    return customer  # type: ignore[no-any-return]
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_customer(customer_id: int, session: SessionDep) -> None:
-    """Delete a customer and its cascaded portfolios/transactions."""
-    customer = await _get_or_404(session, customer_id)
+async def delete_customer(customer_id: int, session: SessionDep, user: AdminDep) -> None:
+    """Delete a customer and its cascaded portfolios/transactions (admin only)."""
+    customer = await load_customer_checked(session, user, customer_id)
     await session.delete(customer)
     await session.commit()

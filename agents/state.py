@@ -44,6 +44,8 @@ class AdvisorState(TypedDict, total=False):
 
     # Raporlama
     report: str
+    llm_mode: str
+    llm_error_kind: str | None
 
     # Hata yönetimi
     error: str | None

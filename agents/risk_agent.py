@@ -37,7 +37,7 @@ class RiskAgent:
             if not customer_id:
                 return {"error": "customer_id eksik: risk değerlendirmesi yapılamaz."}
 
-            async with session_factory() as session:  # type: AsyncSession
+            async with session_factory() as session:
                 customer = await session.get(Customer, customer_id)
                 if customer is None:
                     logger.warning("risk_agent_customer_missing", customer_id=customer_id)

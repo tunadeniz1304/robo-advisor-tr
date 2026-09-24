@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.logging import get_logger
+from llm.redaction import income_band
 from models import Customer
 
 logger = get_logger("otonom.risk")
@@ -114,7 +115,8 @@ class RiskService:
         tolerance_norm = (tolerance - 1) / 4.0  # 0..1
 
         horizon_norm = self._horizon_factor(customer.investment_horizon_years)
-        income_norm = self._income_factor(customer.monthly_income)
+        income = float(customer.monthly_income or 0)
+        income_norm = self._income_factor(income)
 
         score = 100.0 * (
             self.TOLERANCE_WEIGHT * tolerance_norm
@@ -126,8 +128,8 @@ class RiskService:
         category, max_equity = self.category_bounds(score)
         rationale = (
             f"Beyan edilen tolerans {tolerance}/5, yatırım ufku "
-            f"{customer.investment_horizon_years} yıl, aylık gelir "
-            f"~{customer.monthly_income:,.0f} TL -> dinamik skor "
+            f"{customer.investment_horizon_years} yıl, gelir bandı "
+            f"{income_band(income)} TL -> dinamik skor "
             f"{score:.1f}/100 ({category})."
         )
         logger.info(

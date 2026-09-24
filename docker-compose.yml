@@ -1,10 +1,10 @@
 # =============================================================================
-# Otonom Finansal Danışman (Robo-Advisor) — Docker Compose Orchestration
-# Prodüksiyona hazır servis topolojisi:
-#   * api  : FastAPI uygulaması (uvicorn)
-#   * db   : PostgreSQL 16 (ana veritabanı)
-# API anahtarları (OPENAI_API_KEY / ANTHROPIC_API_KEY) host üzerindeki
-# .env dosyasından Compose interpolation ile aktarılır; imaja yazılmaz.
+# Otonom Finansal Danışman — Docker Compose
+#   api : FastAPI + LangGraph (uvicorn)
+#   db  : PostgreSQL 16 (yalnızca iç ağda; host'a port açılmaz)
+#
+# Gizli değerler proje kökündeki .env dosyasından env_file ile verilir; imaja
+# kopyalanmaz. .env yoksa uygulama deterministik DEMO modunda çalışır.
 # =============================================================================
 
 services:
@@ -14,45 +14,53 @@ services:
       dockerfile: Dockerfile
     container_name: otonom-advisor-api
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     environment:
-      # Ortam değişkenleri "bake" edilir (README: docker compose up --build)
-      DATABASE_URL: postgresql+asyncpg://advisor:advisor@db:5432/advisor
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-advisor}:${POSTGRES_PASSWORD:-advisor-dev-only}@db:5432/${POSTGRES_DB:-advisor}
+      APP_ENV: ${APP_ENV:-demo}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_JSON: "true"
-      API_V1_PREFIX: /api/v1
-      # Gerçek LLM anahtarları host .env'den gelir (ikisinden biri kullanılır)
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CHECKPOINT_DB: /opt/advisor/state/checkpoints.sqlite
+      SEED_DEMO: ${SEED_DEMO:-true}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+    volumes:
+      - advisor_state:/opt/advisor/state
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).status==200 else 1)"]
-      interval: 30s
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).status==200 else 1)"]
+      interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 40s
 
   db:
     image: postgres:16-alpine
     container_name: otonom-advisor-db
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     environment:
-      POSTGRES_USER: advisor
-      POSTGRES_PASSWORD: advisor
-      POSTGRES_DB: advisor
-    ports:
-      # Host tarafında da 5432'de yayınla — yerel geliştirme/debug için.
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-advisor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-advisor-dev-only}
+      POSTGRES_DB: ${POSTGRES_DB:-advisor}
+    # Port bilinçli olarak host'a açılmaz; yalnızca api servisi erişir.
+    expose:
+      - "5432"
     volumes:
       - advisor_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U advisor -d advisor"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-advisor} -d $${POSTGRES_DB:-advisor}"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
 volumes:
   advisor_pgdata:
+  advisor_state:

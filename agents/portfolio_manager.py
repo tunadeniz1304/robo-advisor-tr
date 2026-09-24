@@ -1,48 +1,103 @@
 """Portföy Yöneticisi (Portfolio Manager) — LangGraph node.
 
-Combines the three analytic pillars of the system:
+Combines the analytic pillars of the system:
 
     1. **Markowitz MPT** (:class:`services.portfolio_service.PortfolioService`)
-       computes target weights from real returns data.
-    2. **Real LLM analysis** (:class:`llm.clients.LLMClient`) evaluates those
-       weights against the risk profile and market outlook (modular prompt —
-       :mod:`agents.prompts`).
-    3. **Database rebalancing** — the node persists the resulting orders via
-       SQL: ``UPDATE portfolios SET holdings = …, cash = …`` and ``INSERT INTO
-       transactions`` for each BUY/SELL, so the ledger and positions stay
-       consistent.
+       computes target weights from real returns data against a real
+       risk-free rate.
+    2. **Rebalance through the ledger** — orders are derived once from the
+       target weights and applied through :func:`services.ledger.apply_trade`
+       inside one DB transaction (sells first, then buys).
+    3. **Grounded LLM rationale** via :class:`llm.gateway.LLMGateway`, which
+       never raises: provider failures fall back to the deterministic demo
+       output. The rebalance therefore runs exactly once even when the LLM is
+       down (bug #1 — previously weights and orders were recomputed and a
+       second, near-empty rebalance was reported).
 
-Weights are reconciled with the risk agency's equity ceiling. The LLM is used
-for qualitative gerekçe (rationale); the *binding* weights come from the MPT
-optimizer — the LLM may adjust them within the risk ceiling, but never
-override the ceiling itself.
+The binding weights always come from the optimiser; the LLM only explains.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import pandas as pd
-from sqlalchemy import update
 
-from agents.prompts import PORTFOLIO_MANAGER_SYSTEM, PORTFOLIO_MANAGER_USER
 from agents.state import AdvisorState
 from core.database import session_factory
 from core.logging import get_logger
-from llm.clients import LLMClient, LLMProviderError
-from models import AdvisorRun, Portfolio, Transaction
+from llm.gateway import GenerationResult, LLMGateway
+from llm.prompts import DISCLAIMER
+from llm.schemas import RebalanceRationale
+from models import AdvisorRun, Portfolio
+from services.ledger import apply_trade
 from services.portfolio_service import PortfolioService
 
 logger = get_logger("otonom.agent.portfolio")
 
+# Sürtünme maliyeti eşiği: bu tutarın altındaki emirler üretilmez.
+MIN_ORDER_AMOUNT = 10.0
+MIN_ORDER_QTY = 0.01
+
+
+def build_orders(
+    weights: dict[str, float],
+    prices: dict[str, float],
+    holdings: dict[str, float],
+    cash: float,
+) -> list[dict[str, Any]]:
+    """Derive rebalancing orders from target weights (pure function).
+
+    Args:
+        weights: Target weights (risky assets; the remainder stays in cash).
+        prices: Last prices per symbol.
+        holdings: Current quantities.
+        cash: Current cash.
+
+    Returns:
+        Orders ``{ticker, side, quantity, price, amount}``; sells first.
+    """
+    market_value = cash + sum(float(holdings.get(t, 0.0)) * p for t, p in prices.items() if p > 0)
+    if market_value <= 0:
+        return []
+    orders: list[dict[str, Any]] = []
+    symbols = sorted(set(weights) | {t for t, q in holdings.items() if float(q) > 0})
+    for ticker in symbols:
+        price = float(prices.get(ticker, 0.0))
+        if price <= 0:
+            continue
+        target_qty = market_value * float(weights.get(ticker, 0.0)) / price
+        delta = target_qty - float(holdings.get(ticker, 0.0))
+        if abs(delta) * price < MIN_ORDER_AMOUNT or abs(delta) < MIN_ORDER_QTY:
+            continue
+        qty = round(abs(delta), 6)
+        orders.append(
+            {
+                "ticker": ticker,
+                "side": "BUY" if delta > 0 else "SELL",
+                "quantity": qty,
+                "price": price,
+                "amount": round(qty * price, 4),
+            }
+        )
+    orders.sort(key=lambda o: 0 if o["side"] == "SELL" else 1)
+    return orders
+
 
 class PortfolioManagerAgent:
-    """Node factory; binds the MPT engine and the real LLM client."""
+    """Node factory; binds the MPT engine and the LLM gateway."""
 
-    def __init__(self, portfolio_service: PortfolioService, llm: LLMClient) -> None:
+    def __init__(
+        self,
+        portfolio_service: PortfolioService,
+        gateway: LLMGateway,
+        *,
+        risk_free_rate: float = 0.0,
+    ) -> None:
         self._mpt = portfolio_service
-        self._llm = llm
+        self._gateway = gateway
+        self._rf = risk_free_rate
 
     def node(self) -> Callable[[AdvisorState], Awaitable[dict]]:
         """Return the async node function runnable by LangGraph."""
@@ -61,44 +116,49 @@ class PortfolioManagerAgent:
                 }
 
             try:
-                weights = await self._compute_weights(market, returns_payload, risk)
-                orders = await self._rebalance(portfolio_id, weights, market)
-                report = await self._llm_analysis(state, weights, orders)
-                await self._persist_audit_run(
-                    state, weights=weights, orders=orders, report=report, error=None
-                )
-            except LLMProviderError as exc:
-                # LLM erişilemez durumda: MPT ağırlıkları hâlâ uygulanabilir —
-                # ama kullanıcıya bunu açıkça raporla.
-                logger.warning("portfolio_manager_llm_unavailable", error=str(exc))
-                weights = await self._compute_weights(market, returns_payload, risk)
-                orders = await self._rebalance(portfolio_id, weights, market)
-                report = (
-                    "Otomatik yeniden dengeleme tamamlandı; LLM analizi şu an "
-                    f"erişilemediği için atlandı ({exc}). Ağırlıklar Markowitz "
-                    "optimizasyonuna dayanmaktadır."
-                )
-                await self._persist_audit_run(
-                    state, weights=weights, orders=orders, report=report, error=str(exc)
-                )
-                return {"weights": weights, "orders": orders, "report": report, "error": None}
-
+                # Ağırlıklar ve emirler TEK KEZ hesaplanır ve uygulanır.
+                weights = self._compute_weights(market, returns_payload, risk)
+                orders = await self._rebalance(int(portfolio_id), weights, market)
             except Exception as exc:  # noqa: BLE001 - görünür hata döndür
-                logger.exception("portfolio_manager_failed", error=str(exc))
+                logger.exception("portfolio_manager_failed", error_type=type(exc).__name__)
                 return {
                     "weights": {},
                     "orders": [],
                     "report": "",
-                    "error": f"Portföy yöneticisi başarısız: {exc}",
+                    "error": "Portföy yöneticisi yeniden dengelemeyi tamamlayamadı.",
                 }
 
+            # LLM gerekçesi: gateway asla istisna fırlatmaz (live → fallback).
+            result: GenerationResult[RebalanceRationale] = await self._gateway.generate(
+                "rebalance_rationale", self._rationale_context(risk, weights, orders)
+            )
+            rationale = result.data
+            report = "\n".join(
+                [rationale.ozet, *[f"• {g}" for g in rationale.gerekceler], DISCLAIMER]
+            )
+            status = "success" if result.mode != "fallback" else "degraded"
+            await self._persist_audit_run(
+                state,
+                weights=weights,
+                orders=orders,
+                report=report,
+                status=status,
+                error=result.error_kind,
+            )
             logger.info(
                 "portfolio_manager_completed",
                 portfolio_id=portfolio_id,
                 orders=len(orders),
-                weights={k: round(v, 4) for k, v in weights.items()},
+                llm_mode=result.mode,
             )
-            return {"weights": weights, "orders": orders, "report": report, "error": None}
+            return {
+                "weights": weights,
+                "orders": orders,
+                "report": report,
+                "llm_mode": result.mode,
+                "llm_error_kind": result.error_kind,
+                "error": None,
+            }
 
         return run
 
@@ -110,184 +170,97 @@ class PortfolioManagerAgent:
         if returns_payload:
             frame = pd.DataFrame.from_dict(returns_payload, orient="index")
             frame.index = pd.to_datetime(frame.index)
-            return frame
-        # Fallback: daily_returns float dict'lerinden yeniden kur.
-        series: dict[str, pd.Series] = {}
-        for ticker, snap in market.items():
-            dr = snap.get("_daily_returns")
-            if isinstance(dr, dict) and dr:
-                series[ticker] = pd.Series(dr)
-        return pd.DataFrame(series)
+            return frame.sort_index()
+        return pd.DataFrame()
 
-    async def _compute_weights(
+    def _compute_weights(
         self,
-        market: dict[str, object],
-        returns_payload: dict[str, object],
-        risk: dict[str, object],
+        market: dict[str, Any],
+        returns_payload: dict[str, Any],
+        risk: dict[str, Any],
     ) -> dict[str, float]:
         """Run Markowitz; enforce the risk agency's equity ceiling."""
         frame = self._as_returns_frame(market, returns_payload)
         ceiling = float(risk.get("max_equity_weight", 1.0))
         tickers = [t for t in market if isinstance(market[t], dict)]
         if frame.empty or frame.shape[0] < 2 or not tickers:
-            # Yetersiz veri: eşit ağırlık — veri olmadan MPT çalışmaz.
-            weights = {t: 1.0 / len(tickers) for t in tickers} if tickers else {}
+            weights = {t: ceiling / len(tickers) for t in tickers} if tickers else {}
             logger.warning("markowitz_insufficient_data_equal_weight", tickers=tickers)
-        else:
-            weights = self._mpt.tangency_weights(
-                frame, risk_free_rate=0.0, max_equity_weight=ceiling
-            )
-            # Sadece state'te var olan, verisi olan varlıkları döndür.
-            weights = {t: w for t, w in weights.items() if t in market}
-        return weights
+            return weights
+        weights = self._mpt.tangency_weights(
+            frame, risk_free_rate=self._rf, max_equity_weight=ceiling
+        )
+        return {t: w for t, w in weights.items() if t in market}
 
     async def _rebalance(
-        self,
-        portfolio_id: int,
-        weights: dict[str, float],
-        market: dict[str, object],
-    ) -> list[dict[str, object]]:
-        """Persist rebalanced holdings (SQL UPDATE + INSERTs)."""
+        self, portfolio_id: int, weights: dict[str, float], market: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Apply the orders through the ledger in one DB transaction."""
         if not weights:
             return []
-
         async with session_factory() as session:
             portfolio = await session.get(Portfolio, portfolio_id)
             if portfolio is None:
                 raise RuntimeError(f"Portfolio {portfolio_id} bulunamadı.")
-
             prices = {
                 t: float(snap.get("last_price", 0.0))
                 for t, snap in market.items()
                 if isinstance(snap, dict)
             }
-            current = dict(portfolio.holdings or {})
-            cash_before = float(portfolio.cash)
-
-            # Piyasa değeri (T0): nakit + Σ qty*price
-            market_value = cash_before + sum(
-                float(current.get(t, 0.0)) * p for t, p in prices.items() if p > 0
+            orders = build_orders(
+                weights, prices, dict(portfolio.holdings or {}), float(portfolio.cash)
             )
-            if market_value <= 0 or not prices:
-                return []
-
-            orders: list[dict[str, object]] = []
-            new_holdings: dict[str, float] = {}
-            cash_after = cash_before
-
-            for ticker, weight in weights.items():
-                price = prices.get(ticker, 0.0)
-                if price <= 0:
-                    new_holdings[ticker] = float(current.get(ticker, 0.0))
-                    continue
-                target_value = market_value * weight
-                target_qty = target_value / price
-                current_qty = float(current.get(ticker, 0.0))
-                delta = target_qty - current_qty
-
-                # Küçük eşiklerin altında işlem yapma (sürtünme maliyeti).
-                if abs(delta) * price >= 10.0 and abs(delta) >= 0.01:
-                    side = "BUY" if delta > 0 else "SELL"
-                    qty = round(abs(delta), 6)
-                    amount = round(qty * price, 4)
-                    orders.append(
-                        {
-                            "ticker": ticker,
-                            "side": side,
-                            "quantity": qty,
-                            "price": price,
-                            "amount": amount,
-                        }
-                    )
-                    cash_after += amount if side == "SELL" else -amount
-
-                new_holdings[ticker] = round(target_qty, 6)
-
-            # SQL UPDATE: holdings + cash
-            await session.execute(
-                update(Portfolio)
-                .where(Portfolio.id == portfolio_id)
-                .values(
-                    holdings={k: float(v) for k, v in new_holdings.items()},
-                    cash=round(cash_after, 4),
-                )
-            )
-
-            # SQL INSERT: her işlem için ledger kaydı
             for order in orders:
-                session.add(
-                    Transaction(
-                        portfolio_id=portfolio_id,
-                        ticker=str(order["ticker"]),
-                        side=str(order["side"]),
-                        quantity=float(order["quantity"]),
-                        price=float(order["price"]),
-                        total_amount=float(order["amount"]),
-                        reason="rebalance",
-                    )
+                await apply_trade(
+                    session,
+                    portfolio,
+                    symbol=str(order["ticker"]),
+                    side=str(order["side"]),
+                    quantity=order["quantity"],
+                    price=order["price"],
+                    reason="rebalance",
                 )
             await session.commit()
-
-            logger.info(
-                "rebalance_persisted",
-                portfolio_id=portfolio_id,
-                cash=round(cash_after, 4),
-                orders=len(orders),
-            )
+            logger.info("rebalance_persisted", portfolio_id=portfolio_id, orders=len(orders))
             return orders
 
-    async def _llm_analysis(
-        self,
-        state: AdvisorState,
-        weights: dict[str, float],
-        orders: list[dict[str, object]],
-    ) -> str:
-        """Run the real LLM narrative for the computed allocation."""
-        risk = state.get("risk") or {}
-        market = state.get("market") or {}
-        user_prompt = PORTFOLIO_MANAGER_USER.format(
-            risk_profile=json.dumps(risk, ensure_ascii=False, indent=2),
-            markowitz_weights=json.dumps(weights, ensure_ascii=False, indent=2),
-            market_snapshot=json.dumps(market, ensure_ascii=False, indent=2)[:4000],
-            current_holdings=json.dumps(state.get("holdings") or {}, ensure_ascii=False),
-        )
-        return await self._llm.complete(
-            system=PORTFOLIO_MANAGER_SYSTEM, user=user_prompt, max_tokens=700
-        )
+    @staticmethod
+    def _rationale_context(
+        risk: dict[str, Any], weights: dict[str, float], orders: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return {
+            "risk_kategorisi": risk.get("category"),
+            "risk_skoru": risk.get("score"),
+            "yontem": "kısıtlı Markowitz (maksimum Sharpe)",
+            "hedef_agirliklar": {k: round(v, 4) for k, v in weights.items()},
+            "emirler": [
+                {"sembol": o["ticker"], "yon": o["side"], "tutar": o["amount"]} for o in orders
+            ],
+        }
 
     async def _persist_audit_run(
         self,
         state: AdvisorState,
         *,
         weights: dict[str, float],
-        orders: list[dict[str, object]],
+        orders: list[dict[str, Any]],
         report: str,
+        status: str,
         error: str | None,
     ) -> None:
-        """Regülatif audit trail: bu çalışmanın tam kaydını ``advisor_runs`` tablosuna yaz.
-
-        ESMA/MiFID II uyumluluğu için algoritmik yatırım tavsiyesinin arkasında
-        sorgulanabilir bir iz bırakılmalıdır: hangi girdilerle hangi kararlar
-        alındı, hangi emirler üretildi. Bu kayıt, işlem commit edildikten sonra
-        ayrı bir oturumla yazılır (işlemler ve iz aynı dilimde değildir).
-        """
+        """Write the regulatory audit record of this run (``advisor_runs``)."""
         portfolio_id = state.get("portfolio_id")
         customer_id = state.get("customer_id")
         if not portfolio_id or not customer_id:
-            logger.warning("audit_run_skipped_missing_context", state_keys=sorted(state.keys()))
+            logger.warning("audit_run_skipped_missing_context")
             return
-        market_input = state.get("market") or {}
-        if error is None:
-            status = "success"
-        else:
-            status = "degraded"  # LLM erişilemedi ama MPT uygulandı
         try:
             async with session_factory() as session:
                 session.add(
                     AdvisorRun(
                         portfolio_id=int(portfolio_id),
                         customer_id=int(customer_id),
-                        market_input=market_input,
+                        market_input=state.get("market") or {},
                         target_weights=weights,
                         orders=orders,
                         report=report,
@@ -296,9 +269,8 @@ class PortfolioManagerAgent:
                     )
                 )
                 await session.commit()
-            logger.info("audit_run_persisted", portfolio_id=portfolio_id, status=status)
         except Exception as exc:  # noqa: BLE001 - iz yazımı ana akışı bozmamalı
-            logger.exception("audit_run_failed", portfolio_id=portfolio_id, error=str(exc))
+            logger.exception("audit_run_failed", error_type=type(exc).__name__)
 
 
-__all__ = ["PortfolioManagerAgent"]
+__all__ = ["PortfolioManagerAgent", "build_orders"]

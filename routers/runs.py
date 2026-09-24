@@ -10,19 +10,16 @@ endpoint is intentionally read-only.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_session
-from models import AdvisorRun
+from core.deps import SessionDep, UserDep, load_customer_checked, load_portfolio_checked
+from models import AdvisorRun, Customer
 
 router = APIRouter(prefix="/runs", tags=["advisor-runs"])
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 class AdvisorRunOut(BaseModel):
@@ -60,6 +57,7 @@ def _run_out(run: AdvisorRun) -> AdvisorRunOut:
 @router.get("", response_model=list[AdvisorRunOut])
 async def list_runs(
     session: SessionDep,
+    user: UserDep,
     portfolio_id: int | None = Query(default=None),
     customer_id: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -67,20 +65,30 @@ async def list_runs(
     """List audit runs, newest first, optionally filtered by portfolio/customer."""
     stmt = select(AdvisorRun).order_by(AdvisorRun.created_at.desc(), AdvisorRun.id.desc())
     if portfolio_id is not None:
+        await load_portfolio_checked(session, user, portfolio_id)
         stmt = stmt.where(AdvisorRun.portfolio_id == portfolio_id)
     if customer_id is not None:
+        await load_customer_checked(session, user, customer_id)
         stmt = stmt.where(AdvisorRun.customer_id == customer_id)
+    if portfolio_id is None and customer_id is None and not user.is_admin:
+        if user.is_advisor:
+            stmt = stmt.join(Customer, Customer.id == AdvisorRun.customer_id).where(
+                Customer.advisor_user_id == user.id
+            )
+        else:
+            stmt = stmt.where(AdvisorRun.customer_id == (user.customer_id or -1))
     stmt = stmt.limit(limit)
     result = await session.execute(stmt)
     return [_run_out(r) for r in result.scalars().all()]
 
 
 @router.get("/{run_id}", response_model=AdvisorRunOut)
-async def get_run(run_id: int, session: SessionDep) -> AdvisorRunOut:
+async def get_run(run_id: int, session: SessionDep, user: UserDep) -> AdvisorRunOut:
     """Fetch a single audit run by id (404 if absent)."""
     run = await session.get(AdvisorRun, run_id)
     if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"advisor run {run_id} not found"
         )
+    await load_portfolio_checked(session, user, run.portfolio_id)
     return _run_out(run)

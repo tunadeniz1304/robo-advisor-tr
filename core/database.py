@@ -19,6 +19,7 @@ application code.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -86,34 +87,30 @@ def session_factory_for(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]
     )
 
 
-async def init_db(engine: AsyncEngine) -> None:
-    """Create all tables defined on ``Base.metadata`` in the database.
-
-    Intended for application startup and tests. In a real deployment,
-    migrations (Alembic) would take over; the schema is kept small here and
-    ``create_all`` is deterministic (no-op when tables already exist).
+async def init_db(engine: AsyncEngine, settings: Any | None = None) -> None:
+    """Create all tables defined on ``Base.metadata`` (dev/test bootstrap).
 
     Args:
         engine: The async engine whose database should be initialised.
+        settings: Application settings (reserved for migration mode).
     """
+    import models  # noqa: F401 - tüm modelleri metadata'ya kaydet
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_session(
-    session_factory_holder=session_factory_for,  # overridden at startup
-) -> AsyncIterator[AsyncSession]:
+async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency yielding an :class:`AsyncSession`.
 
-    The default engine/session is resolved lazily via module-level ``engine``
-    and ``SessionFactory`` which the application bootstrap fills in. Tests
-    override these with their own engine/sessionmaker.
+    Sessions come from the process-wide factory registered by
+    :func:`adopt_engine` during application startup.
 
     Yields:
         An :class:`AsyncSession`. On completion the session is always closed;
         on error it is additionally rolled back.
     """
-    session: AsyncSession = session_factory()  # noqa: F821 - resolved at runtime
+    session: AsyncSession = session_factory()
     try:
         yield session
     except Exception:

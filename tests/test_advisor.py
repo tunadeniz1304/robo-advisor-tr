@@ -26,8 +26,10 @@ from services.risk_service import RiskService
 from tests.conftest import (
     DeterministicLLM,
     FakeMarketSource,
+    auth_headers,
     create_customer,
     create_portfolio,
+    login,
 )
 
 
@@ -37,20 +39,18 @@ def advisor_client(settings: Settings) -> TestClient:
     from core.app import create_app
 
     app: FastAPI = create_app(settings=settings)
-
-    def _override() -> AdvisorService:
-        return AdvisorService(
-            settings=settings,
-            market_service=MarketService(FakeMarketSource(symbols=[])),
-            risk_service=RiskService(),
-            portfolio_service=PortfolioService(),
-            llm_client=DeterministicLLM(),
-        )
-
-    app.dependency_overrides[advisor_router.get_advisor_service] = _override
+    service = AdvisorService(
+        settings=settings,
+        market_service=MarketService(FakeMarketSource(symbols=[])),
+        risk_service=RiskService(),
+        portfolio_service=PortfolioService(),
+        llm_client=DeterministicLLM(),
+    )
+    app.dependency_overrides[advisor_router.get_advisor_service] = lambda: service
     # Context manager'ı dışarıdan girmek zorundayız: lifespan (adopt_engine)
     # yalnızca ``__enter__`` ile tetiklenir.
     with TestClient(app) as c:
+        c.headers.update(auth_headers(login(c)))
         yield c
 
 
@@ -109,6 +109,9 @@ def test_advisor_rebalance_persists_transactions(advisor_client: TestClient) -> 
         "/api/v1/transactions", params={"portfolio_id": portfolio_id}
     ).json()
     assert len(listed) == len(orders)
+    # Liste en yeni önce sıralıdır; sıralama sözleşme değil, sembole göre eşle.
+    listed = sorted(listed, key=lambda r: r["ticker"])
+    orders = sorted(orders, key=lambda o: o["ticker"])
     for row, order in zip(listed, orders, strict=True):
         assert row["ticker"] == order["ticker"]
         assert row["side"] == order["side"]
@@ -137,15 +140,18 @@ def test_advisor_rebalance_unknown_portfolio(advisor_client: TestClient) -> None
     assert resp.status_code == 422
 
 
-def test_llm_missing_returns_503(client: TestClient) -> None:
-    """Without LLM credentials the advisor endpoint fails gracefully (503)."""
+def test_rebalance_without_key_runs_in_demo_mode(client: TestClient) -> None:
+    """Without LLM credentials the workflow still completes (demo, no 503)."""
     customer_id = create_customer(client)["id"]
     portfolio_id = create_portfolio(client, customer_id)["id"]
 
     resp = client.post(
         f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
     )
-    assert resp.status_code == 503
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["llm_mode"] == "demo"
+    assert "yatırım tavsiyesi değildir" in body["report"]
 
 
 def test_advisor_persists_audit_run(advisor_client: TestClient) -> None:
