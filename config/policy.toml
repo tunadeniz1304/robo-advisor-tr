@@ -43,6 +43,17 @@ renewal_warning_days = 30
 [suitability.level_thresholds]
 upper_bounds = [10, 20, 30, 40, 50, 60, 70, 80, 90, 101]
 
+# Bilgi/deneyim puanı (0–100) düşükse erişilebilecek en yüksek seviye
+[suitability.knowledge_caps]
+below_10 = 3
+below_25 = 5
+
+# Kapasiteyi sınırlayan durumlar (seviye üst sınırı)
+[suitability.capacity_caps]
+high_debt = 3          # borç ödemeleri gelirin %50'sinden fazla
+no_emergency_fund = 5  # acil durum fonu yok
+short_horizon = 3      # vade 1 yıldan kısa
+
 # --- Model portföyler (varlık sınıfı ağırlıkları, toplam 1) ----------------------------
 [model_portfolios.1]
 para_piyasasi = 0.70
