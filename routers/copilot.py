@@ -130,7 +130,7 @@ async def letter(
             else float(portfolio.cash)
         },
         "performans": {
-            "toplam_getiri": round(rep["twr"], 4),
+            "toplam_getiri": round(rep["twr_cumulative"], 4),
             "volatilite": round(float(sheet.get("volatility", 0.0)), 4),
         },
         "risk": {

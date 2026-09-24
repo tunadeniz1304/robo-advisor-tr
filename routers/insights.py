@@ -366,17 +366,24 @@ async def behavior_gap(
     out = []
     for p in rows:
         rep = await portfolio_report(session, _c(request).market, p)
-        twr, mwr = rep["twr"], rep["mwr"]
+        # Karşılaştırma aynı birimde olmalı: yıllık MWR − yıllık TWR (bir yıldan kısa
+        # dönemlerde ikisi de yıllıklandırılmaz → açık hesaplanmaz).
+        twr_ann, mwr_ann = rep["twr_annualized"], rep["mwr_annualized"]
         out.append(
             {
                 "portfolio_id": p.id,
-                "twr": twr,
-                "mwr": mwr,
-                "behavior_gap": (mwr - twr) if mwr is not None else None,
+                "twr_cumulative": rep["twr_cumulative"],
+                "twr_annualized": twr_ann,
+                "mwr_annualized": mwr_ann,
+                "period": rep["period"],
+                "behavior_gap": (mwr_ann - twr_ann)
+                if mwr_ann is not None and twr_ann is not None
+                else None,
             }
         )
     return {
         "customer_id": customer_id,
         "portfolios": out,
-        "note": "MWR − TWR: negatifse zamanlama kararları getiriyi düşürmüş olabilir.",
+        "note": "Yıllık MWR − yıllık TWR: negatifse zamanlama kararları getiriyi düşürmüş "
+        "olabilir. Bir yıldan kısa dönemler yıllıklandırılmaz.",
     }

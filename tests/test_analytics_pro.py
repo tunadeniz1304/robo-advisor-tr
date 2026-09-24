@@ -78,7 +78,7 @@ def test_report_and_backtest_api(client: TestClient) -> None:
     prop = client.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}).json()
     client.post(f"/api/v1/proposals/{prop['proposal_id']}/approve")
     rep = client.get(f"/api/v1/portfolios/{pid}/report").json()
-    assert "twr" in rep and "tear_sheet" in rep and rep["value_curve"]
+    assert "twr_cumulative" in rep and "tear_sheet" in rep and rep["value_curve"]
     bt = client.post("/api/v1/backtest", json={"level": 6, "years": 3})
     assert bt.status_code == 200, bt.text
     assert set(bt.json()["results"]) == {"none", "calendar", "band"}

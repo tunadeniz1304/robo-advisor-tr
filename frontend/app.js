@@ -86,7 +86,7 @@ async function loadDashboard() {
   ]);
   $("#kpi-value").textContent = tl(val.total_value); $("#kpi-cash").textContent = tl(val.cash);
   $("#kpi-level").textContent = `${prof.effective.level}/10 · ${prof.effective.label}`;
-  api(`/portfolios/${state.portfolioId}/report`).then((r) => { $("#kpi-twr").textContent = pct(r.twr); }).catch(() => {});
+  api(`/portfolios/${state.portfolioId}/report`).then((r) => { $("#kpi-twr").textContent = pct(r.twr_cumulative); }).catch(() => {});
   const items = val.items.filter((i) => i.market_value > 0);
   chart("chart-allocation", { type: "doughnut", data: { labels: [...items.map((i) => i.ticker), "Nakit"], datasets: [{ data: [...items.map((i) => i.market_value), val.cash], backgroundColor: palette }] }, options: { plugins: { legend: { position: "right" } } } });
   $("#goal-rings").innerHTML = goals.map((g, k) => `<div class="ring"><canvas id="ring-${k}"></canvas><div>${esc(g.name)}<br><b>${pct(g.last_simulation?.success_probability, 0)}</b></div></div>`).join("") || '<p class="muted">Henüz hedef yok.</p>';
@@ -168,7 +168,7 @@ function renderProposal(p) {
 // ------------------------------------------------------------------ analytics & stress
 async function loadAnalytics() {
   const r = await api(`/portfolios/${state.portfolioId}/report`); const t = r.tear_sheet || {};
-  const rows = [["TWR", pct(r.twr)], ["MWR (XIRR)", pct(r.mwr)], ["CAGR", pct(t.cagr)], ["Volatilite", pct(t.volatility)], ["Sharpe", t.sharpe?.toFixed(2)], ["Sortino", t.sortino?.toFixed(2)], ["Maks. düşüş", pct(t.max_drawdown)], ["VaR %95 (günlük)", pct(t.var_95_hist)], ["CVaR %95", pct(t.cvar_95_hist)], ["BIST CAGR", pct(t.benchmark?.cagr)], ["Yıllık TÜFE", pct(r.inflation_yoy)]];
+  const per = r.period || {}; const rows = [["Dönem", `${per.start || "—"} → ${per.end || "—"}`], ["TWR (kümülatif)", pct(r.twr_cumulative)], ["TWR (yıllık)", r.twr_annualized == null ? "— (<1 yıl)" : pct(r.twr_annualized)], ["MWR (yıllık, XIRR)", r.mwr_annualized == null ? "— (<1 yıl)" : pct(r.mwr_annualized)], ["Risksiz faiz (TL)", pct(t.risk_free_rate)], ["Volatilite", pct(t.volatility)], ["Sharpe", t.sharpe?.toFixed(2)], ["Sortino", t.sortino?.toFixed(2)], ["Maks. düşüş", pct(t.max_drawdown)], ["VaR %95 (günlük)", pct(t.var_95_hist)], ["CVaR %95", pct(t.cvar_95_hist)], ["BIST CAGR", pct(t.benchmark?.cagr)], ["Yıllık TÜFE", pct(r.inflation_yoy)]];
   $("#tearsheet").innerHTML = table(rows, [["Metrik", (x) => esc(x[0])], ["Değer", (x) => esc(x[1])]]);
   chart("chart-value", { type: "line", data: { labels: r.value_curve.map((v) => v.date), datasets: [{ label: "Portföy değeri", data: r.value_curve.map((v) => v.value), borderColor: palette[0], pointRadius: 0 }] } });
 }
