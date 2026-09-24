@@ -36,7 +36,9 @@ async def regime_features(market: MarketDataService, months: int) -> pd.DataFram
             "rate": macro["POLICY_RATE"].diff().reindex(rets.index)
             if "POLICY_RATE" in macro
             else 0.0,
-            "cpi": macro["TUFE"].pct_change().reindex(rets.index) if "TUFE" in macro else 0.0,
+            "cpi": macro["TUFE"].dropna().pct_change().reindex(rets.index)
+            if "TUFE" in macro
+            else 0.0,
         }
     )
     return feats.dropna().tail(months)

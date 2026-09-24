@@ -100,7 +100,7 @@ class OptimizationResult:
             "method_label": self.method_label,
             "level": self.level,
             "model_level": self.model_level,
-            "weights": r(self.weights),
+            "weights": round_weights(self.weights),
             "class_weights": r(self.class_weights),
             "model_class_weights": r(self.model_class_weights),
             "risk_contributions": r(self.risk_contributions),
@@ -432,6 +432,16 @@ class OptimizationService:
         return {"expected_return": float(w @ mu), "volatility": st.portfolio_volatility(w, cov)}
 
 
+def round_weights(weights: dict[str, float], digits: int = 6) -> dict[str, float]:
+    """Round weights so that the rounded values still sum exactly to their total."""
+    rounded = {k: round(float(v), digits) for k, v in weights.items()}
+    if rounded:
+        residual = round(sum(float(v) for v in weights.values()) - sum(rounded.values()), digits)
+        top = max(rounded, key=lambda k: rounded[k])
+        rounded[top] = round(rounded[top] + residual, digits)
+    return rounded
+
+
 def binding_constraints(
     cons: st.Constraints, w: np.ndarray, symbols: list[str], tol: float = 1e-4
 ) -> list[dict[str, Any]]:
@@ -486,4 +496,5 @@ __all__ = [
     "View",
     "apply_tilt",
     "binding_constraints",
+    "round_weights",
 ]

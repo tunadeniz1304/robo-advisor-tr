@@ -57,7 +57,7 @@ class GoalPlanningService:
         port = (monthly[cols].fillna(0.0) * (w[cols] / w[cols].sum())).sum(axis=1)
         cpi = self._market.macro().get("TUFE")
         if cpi is not None:
-            infl = cpi.sort_index().pct_change().reindex(port.index)
+            infl = cpi.dropna().sort_index().pct_change().reindex(port.index)
         else:
             infl = pd.Series(np.nan, index=port.index)
         default_m = (1.0 + float(self._p.planning.get("default_inflation", 0.25))) ** (1 / 12) - 1.0
