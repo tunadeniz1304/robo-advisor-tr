@@ -173,6 +173,7 @@ def create_app(
         analytics,
         audit,
         auth,
+        copilot,
         customers,
         goals,
         insights,
@@ -206,6 +207,7 @@ def create_app(
         goals,
         reports,
         insights,
+        copilot,
     ):
         app.include_router(module.router, prefix=api_prefix)
     app.include_router(system.api_router, prefix=api_prefix)
