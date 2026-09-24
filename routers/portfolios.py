@@ -2,22 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import datetime
+from decimal import Decimal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from core.deps import (
     CurrentUser,
     SessionDep,
     UserDep,
+    actor_of,
     load_customer_checked,
     load_portfolio_checked,
     require_roles,
 )
 from core.money import to_decimal
-from models import Customer, Portfolio
+from models import CashFlow, Customer, Portfolio
+from models.base import utcnow
 from schemas.portfolio import PortfolioCreate, PortfolioRead, PortfolioUpdate
+from services.analytics.engine import EXTERNAL_FLOW_KINDS, FLOW_KINDS, FlowEvent
+from services.audit import record_audit
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 
@@ -81,6 +88,18 @@ async def update_portfolio(
         )
     if "cash" in updates:
         updates["cash"] = to_decimal(updates["cash"])
+        # Nakit düzeltmesi getiri değildir: ledger'a dış akış olarak yazılır (TWR'ı etkilemez).
+        delta = updates["cash"] - to_decimal(portfolio.cash)
+        if delta != 0:
+            session.add(
+                CashFlow(
+                    portfolio_id=portfolio.id,
+                    kind="DEPOSIT" if delta > 0 else "WITHDRAWAL",
+                    amount=abs(delta),
+                    currency=portfolio.currency,
+                    note="manuel nakit düzeltmesi",
+                )
+            )
     for field, value in updates.items():
         setattr(portfolio, field, value)
     await session.commit()
@@ -94,3 +113,85 @@ async def delete_portfolio(portfolio_id: int, session: SessionDep, user: StaffDe
     portfolio = await load_portfolio_checked(session, user, portfolio_id)
     await session.delete(portfolio)
     await session.commit()
+
+
+class CashFlowIn(BaseModel):
+    """A ledger cash movement (``amount`` is a positive magnitude)."""
+
+    kind: str = Field(pattern="^(" + "|".join(sorted(FLOW_KINDS)) + ")$")
+    amount: float = Field(gt=0)
+    occurred_at: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+def _flow_out(row: CashFlow) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "amount": round(float(row.amount), 2),
+        "currency": row.currency,
+        "note": row.note,
+        "occurred_at": row.occurred_at.isoformat(),
+        "external": row.kind in EXTERNAL_FLOW_KINDS,
+    }
+
+
+@router.post(
+    "/{portfolio_id}/cash-flows",
+    status_code=status.HTTP_201_CREATED,
+    summary="Nakit akışı kaydı (yatırma, çekme, temettü, kupon, faiz, ücret, vergi)",
+)
+async def add_cash_flow(
+    portfolio_id: int, payload: CashFlowIn, session: SessionDep, user: StaffDep
+) -> dict[str, Any]:
+    """Record a cash flow and update cash in one transaction.
+
+    Only DEPOSIT/WITHDRAWAL are external flows for the TWR; dividends,
+    coupons, interest, fees, taxes and commissions are portfolio returns.
+    """
+    portfolio = await load_portfolio_checked(session, user, portfolio_id)
+    delta = Decimal(str(FlowEvent(utcnow().date(), payload.kind, payload.amount).cash_delta))
+    new_cash = to_decimal(portfolio.cash) + delta
+    if new_cash < 0:
+        raise HTTPException(status_code=409, detail="Yetersiz nakit: bu çıkış kaydedilemez.")
+    row = CashFlow(
+        portfolio_id=portfolio.id,
+        kind=payload.kind,
+        amount=to_decimal(payload.amount),
+        currency=portfolio.currency,
+        note=payload.note,
+        occurred_at=payload.occurred_at or utcnow(),
+    )
+    portfolio.cash = to_decimal(new_cash)
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    await record_audit(
+        actor=actor_of(user),
+        actor_role=user.role,
+        action="cash_flow.recorded",
+        entity_type="portfolio",
+        entity_id=portfolio.id,
+        customer_id=portfolio.customer_id,
+        payload={"kind": payload.kind, "amount": payload.amount},
+    )
+    return {**_flow_out(row), "cash_after": round(float(portfolio.cash), 2)}
+
+
+@router.get("/{portfolio_id}/cash-flows", summary="Nakit akışları (ledger)")
+async def list_cash_flows(
+    portfolio_id: int, session: SessionDep, user: UserDep
+) -> list[dict[str, Any]]:
+    await load_portfolio_checked(session, user, portfolio_id)
+    rows = (
+        (
+            await session.execute(
+                select(CashFlow)
+                .where(CashFlow.portfolio_id == portfolio_id)
+                .order_by(CashFlow.occurred_at, CashFlow.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [_flow_out(r) for r in rows]
