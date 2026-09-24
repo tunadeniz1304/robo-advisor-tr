@@ -4,7 +4,9 @@ policy and transaction costs.
 Policies:
     * ``none``     — buy and hold (weights drift freely),
     * ``calendar`` — back to target every ``calendar_days`` trading days,
-    * ``band``     — back to target when any weight leaves its policy band.
+    * ``band``     — back to target when any weight leaves its relative drift
+      band or an asset-class total leaves the absolute class band (the same
+      rules as the live rebalancing engine).
 
 Costs: each rebalance pays ``Σ |Δw| · V · cost_rate_i`` (commission, BSMV,
 half-spread from the cost model). The engine is a simple, vectorised-per-day
@@ -47,7 +49,11 @@ def run_backtest(
     w_t = np.array([target[s] for s in cols])
     w_t = w_t / w_t.sum()
     rates = np.array([costs.estimate(s, 10_000).total / 10_000 for s in cols])
-    bands = np.array([policy.band_for(asset_class_of(s)) for s in cols])
+    bands = np.array([policy.drift_band(float(x)) for x in w_t])
+    classes = sorted({asset_class_of(s) for s in cols})
+    class_mask = np.array([[asset_class_of(s) == c for s in cols] for c in classes], dtype=float)
+    class_target = class_mask @ w_t
+    class_band = policy.class_band()
     rets = px.pct_change().fillna(0.0).to_numpy()
 
     value = initial * (1.0 - float(rates @ w_t))  # ilk alım maliyeti
@@ -60,7 +66,11 @@ def run_backtest(
         value = value * float(growth.sum())
         w = growth / growth.sum()
         due = (policy_name == "calendar" and t % calendar_days == 0) or (
-            policy_name == "band" and bool(np.any(np.abs(w - w_t) > bands))
+            policy_name == "band"
+            and (
+                bool(np.any(np.abs(w - w_t) > bands))
+                or bool(np.any(np.abs(class_mask @ w - class_target) > class_band))
+            )
         )
         if due:
             cost = value * float(np.abs(w - w_t) @ rates)

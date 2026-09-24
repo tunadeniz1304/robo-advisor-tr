@@ -151,7 +151,6 @@ fallback_risk_free_rate = 0.35
 
 # --- Yeniden dengeleme ---------------------------------------------------------------------
 [rebalance]
-default_band = 0.03
 calendar = "monthly"          # monthly | quarterly
 min_trade_amount = 250.0      # TL
 proposal_ttl_hours = 24
@@ -163,14 +162,15 @@ max_cash_weight = 0.02
 # Min-devir LP'sinde satışların ek maliyet ağırlığı (satışı azaltır)
 sell_penalty = 0.5
 
-[rebalance.bands]
-para_piyasasi = 0.03
-tl_tahvil = 0.03
-eurobond = 0.04
-altin = 0.05
-doviz = 0.05
-bist_endeks = 0.06
-bist_hisse = 0.07
+# Drift bantları (Betterment tarzı göreli + mutlak): enstrüman bandı
+#   band_i = min(abs_cap, max(abs_floor, rel · hedef_i))
+# Örnek: hedef %1,3 → max(%0,5; %0,325) = %0,5; hedef %10 → %2,5; hedef %40 → min(%5; %10) = %5.
+# Varlık sınıfı toplamına ayrıca mutlak class_abs bandı uygulanır.
+[rebalance.drift_band]
+abs_floor = 0.005
+rel = 0.25
+abs_cap = 0.05
+class_abs = 0.03
 
 # --- İşlem maliyetleri (bilgi amaçlı) ----------------------------------------------------------
 [costs]

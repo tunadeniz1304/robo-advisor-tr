@@ -38,7 +38,6 @@ class InvestmentPolicy:
     model_portfolios: dict[int, dict[str, float]]
     optimization: dict[str, Any]
     rebalance: dict[str, Any]
-    bands: dict[str, float]
     costs: dict[str, Any]
     tax: dict[str, Any]
     planning: dict[str, Any]
@@ -55,9 +54,26 @@ class InvestmentPolicy:
         idx = max(1, min(int(level), len(self.risk_labels))) - 1
         return self.risk_labels[idx]
 
-    def band_for(self, asset_class: str) -> float:
-        """Drift band of an asset class (falls back to the default band)."""
-        return float(self.bands.get(asset_class, self.rebalance.get("default_band", 0.03)))
+    def drift_band(self, target_weight: float) -> float:
+        """Instrument drift band: ``min(abs_cap, max(abs_floor, rel · target))``.
+
+        Relative bands scale with the position: a 1.3 % target gets a 0.5 pp
+        band (floor) instead of a whole asset-class band; positions without a
+        target have no band (any holding is drift).
+        """
+        if target_weight <= 0:
+            return 0.0
+        cfg = self.rebalance["drift_band"]
+        return float(
+            min(
+                float(cfg["abs_cap"]),
+                max(float(cfg["abs_floor"]), float(cfg["rel"]) * float(target_weight)),
+            )
+        )
+
+    def class_band(self) -> float:
+        """Absolute drift band of an asset-class total."""
+        return float(self.rebalance["drift_band"]["class_abs"])
 
     def commission_bps(self, asset_class: str) -> float:
         return float(self.costs.get("commission_bps", {}).get(asset_class, 0.0))
@@ -89,6 +105,11 @@ def _parse(data: dict[str, Any]) -> InvestmentPolicy:
         unknown = set(weights) - set(data["asset_classes"])
         if unknown:
             raise PolicyError(f"Model portföy {level} bilinmeyen sınıf içeriyor: {sorted(unknown)}")
+    band = data["rebalance"].get("drift_band", {})
+    if set(band) != {"abs_floor", "rel", "abs_cap", "class_abs"}:
+        raise PolicyError("rebalance.drift_band: abs_floor, rel, abs_cap, class_abs tanımlanmalı.")
+    if not 0 < float(band["abs_floor"]) <= float(band["abs_cap"]):
+        raise PolicyError("rebalance.drift_band: 0 < abs_floor ≤ abs_cap olmalı.")
     if sorted(models) != list(range(1, 11)):
         raise PolicyError("Model portföy kütüphanesi 1–10 seviyelerini eksiksiz içermeli.")
     risk = data["risk_levels"]
@@ -103,8 +124,7 @@ def _parse(data: dict[str, Any]) -> InvestmentPolicy:
         level_upper_bounds=[float(x) for x in suit["level_thresholds"]["upper_bounds"]],
         model_portfolios=models,
         optimization=dict(data["optimization"]),
-        rebalance={k: v for k, v in data["rebalance"].items() if k != "bands"},
-        bands={k: float(v) for k, v in data["rebalance"].get("bands", {}).items()},
+        rebalance=dict(data["rebalance"]),
         costs=dict(data["costs"]),
         tax=dict(data["tax"]),
         planning=dict(data["planning"]),

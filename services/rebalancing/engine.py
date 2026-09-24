@@ -2,9 +2,11 @@
 
 Given holdings, cash, prices and target weights:
 
-* :func:`drift_report` — instrument and asset-class drift vs target with the
-  policy bands (volatile classes get wider bands) and idle cash; the
-  portfolio needs rebalancing only when something is outside its band.
+* :func:`drift_report` — instrument and asset-class drift vs target and idle
+  cash. Instrument bands are relative with an absolute floor and cap
+  (:func:`drift_band`, Betterment style); asset-class totals use an absolute
+  band. The portfolio needs rebalancing only when something is outside its
+  band.
 * :func:`plan_trades` — solves (``scipy.optimize.linprog``)::
 
       min  Σ b_i + (1 + κ) Σ s_i + Σ k_i (b_i + s_i) + ε Σ d_i
@@ -85,8 +87,9 @@ class TradePlan:
     drift: dict[str, Any] = field(default_factory=dict)
 
 
-def band_of(symbol: str, policy: InvestmentPolicy) -> float:
-    return policy.band_for(asset_class_of(symbol))
+def drift_band(target_weight: float, policy: InvestmentPolicy | None = None) -> float:
+    """``min(abs_cap, max(abs_floor, rel · target))`` from the policy file."""
+    return (policy or get_policy()).drift_band(target_weight)
 
 
 def drift_report(
@@ -102,7 +105,7 @@ def drift_report(
     for sym in symbols:
         actual = weights.get(sym, 0.0)
         tgt = float(target.get(sym, 0.0))
-        band = band_of(sym, policy) if tgt > 0 else 0.0
+        band = policy.drift_band(tgt)
         out = abs(actual - tgt) > band + 1e-9 and (tgt > 0 or actual > 1e-6)
         outside = outside or out
         rows.append(
@@ -124,7 +127,7 @@ def drift_report(
         c["target"] += r["target_weight"]
     class_rows = []
     for cls, v in sorted(classes.items()):
-        band = policy.band_for(cls)
+        band = policy.class_band()
         out = abs(v["actual"] - v["target"]) > band + 1e-9
         outside = outside or out
         class_rows.append(
@@ -186,7 +189,7 @@ def plan_trades(
     n = len(symbols)
     v0 = np.array([state.values.get(s, 0.0) for s in symbols])
     t = np.array([float(target.get(s, 0.0)) for s in symbols])
-    band = np.array([band_of(s, policy) if target.get(s, 0) > 0 else 0.0 for s in symbols])
+    band = np.array([policy.drift_band(float(target.get(s, 0.0))) for s in symbols])
     k = np.array([costs.estimate(s, 10_000.0).total / 10_000.0 for s in symbols])
     # Maliyet/slipaj sonrası bant içinde kalmak için LP bandı %10 daraltılır.
     inner = band * BAND_SAFETY
@@ -210,11 +213,11 @@ def plan_trades(
     classes: dict[str, list[int]] = {}
     for i, s in enumerate(symbols):
         classes.setdefault(asset_class_of(s), []).append(i)
-    for cls, idx in classes.items():
+    for idx in classes.values():
         tc = float(t[idx].sum())
         if tc <= 0:
             continue
-        cband = policy.band_for(cls) * BAND_SAFETY
+        cband = policy.class_band() * BAND_SAFETY
         mask = np.zeros(n)
         mask[idx] = 1.0
         rows.append(np.concatenate([mask, -mask, np.zeros(n)]))
@@ -305,4 +308,4 @@ def plan_trades(
     )
 
 
-__all__ = ["CASH", "PortfolioState", "TradePlan", "band_of", "drift_report", "plan_trades"]
+__all__ = ["CASH", "PortfolioState", "TradePlan", "drift_band", "drift_report", "plan_trades"]
