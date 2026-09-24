@@ -5,9 +5,10 @@ Provides read-only analytics that the API surfaces to advisors and customers:
     * **Valuation** — mark-to-market total value (cash + Σ qty × last_price),
       per-asset breakdown with current weights, and unrealized P&L vs a
       provided cost basis (defaults to the last known transaction price).
-    * **Performance metrics** — from aligned daily returns: annualized return,
-      annualized volatility, Sharpe ratio (with a configurable risk-free
-      rate) and maximum drawdown, plus a parametric Value-at-Risk estimate.
+    * **Monte Carlo projection** — GBM wealth paths for planning views.
+
+Performance metrics (TWR, MWR, Sharpe …) are *not* computed here: the single
+ledger-based engine lives in :mod:`services.analytics.engine`.
 
 All functions are pure (accept data in, return JSON-friendly dicts), so they
 are unit-testable without the network or a database.
@@ -15,11 +16,9 @@ are unit-testable without the network or a database.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 import numpy as np
-import pandas as pd
 
 from core.logging import get_logger
 from services.market_service import MarketSnapshot
@@ -243,156 +242,6 @@ class AnalyticsService:
             "cash_weight": round(cash_weight, 6),
             "trigger_band": trigger_band,
         }
-
-    # -- Performance ---------------------------------------------------------
-
-    def performance_metrics(
-        self,
-        returns: pd.DataFrame,
-        risk_free_rate: float = 0.0,
-        confidence: float = 0.95,
-        weights: dict[str, float] | None = None,
-        cash_weight: float = 0.0,
-    ) -> dict[str, object]:
-        """Compute portfolio performance metrics from daily returns.
-
-        The portfolio return series is the **quantity-weighted** combination
-        of asset returns (``weights`` = current market-value weights) plus the
-        cash sleeve earning the risk-free rate. Total return is compounded
-        (``Π(1+r) − 1``) and annualised geometrically.
-
-        Args:
-            returns: Daily simple returns frame (rows=dates, cols=tickers).
-            risk_free_rate: Annualised risk-free rate (Sharpe and cash yield).
-            confidence: VaR confidence level in (0,1), e.g. 0.95.
-            weights: ``{ticker: weight}`` of the invested sleeve; when omitted
-                a single column is used directly and several columns are
-                equally weighted (explicit fallback, logged).
-            cash_weight: Portfolio weight held in cash (earns ``rf``).
-
-        Returns:
-            Dict with keys: total_return, annualized_return, volatility,
-            sharpe_ratio, max_drawdown, var_95, observations.
-        """
-        if returns is None or returns.empty:
-            return self._neutral_metrics()
-
-        frame = returns.replace([np.inf, -np.inf], np.nan)
-        if weights:
-            cols = [c for c in frame.columns if c in weights]
-            if not cols:
-                return self._neutral_metrics()
-            w = np.array([float(weights[c]) for c in cols])
-            series = frame[cols].fillna(0.0) @ w
-            series = series + float(cash_weight) * (risk_free_rate / TRADING_DAYS)
-        elif frame.shape[1] == 1:
-            series = frame.iloc[:, 0]
-        else:
-            logger.info("performance_equal_weight_fallback", columns=int(frame.shape[1]))
-            series = frame.mean(axis=1)
-
-        series = series.dropna()
-        if series.empty:
-            return self._neutral_metrics()
-
-        cumulative = (1.0 + series).cumprod()
-        total_return = float(cumulative.iloc[-1] - 1.0)
-        n = len(series)
-        annualized_return = float((1.0 + total_return) ** (TRADING_DAYS / n) - 1.0)
-        daily_std = float(series.std(ddof=1)) if n > 1 else 0.0
-        vol = daily_std * math.sqrt(TRADING_DAYS)
-        sharpe = (annualized_return - risk_free_rate) / vol if vol > 1e-12 else 0.0
-
-        running_max = cumulative.cummax()
-        drawdown = cumulative / running_max - 1.0
-        max_drawdown = float(min(drawdown.min(), 0.0))
-
-        # Parametric (normal) VaR for a 1-day horizon.
-        z = -1.0 * _normal_ppf(1.0 - confidence)
-        var_95 = float(daily_std * z)
-
-        result: dict[str, object] = {
-            "total_return": round(total_return, 6),
-            "annualized_return": round(annualized_return, 6),
-            "volatility": round(vol, 6),
-            "sharpe_ratio": round(sharpe, 6),
-            "max_drawdown": round(max_drawdown, 6),
-            "var_95": round(var_95, 6),
-            "observations": int(n),
-        }
-        logger.info(
-            "performance_metrics", **{k: v for k, v in result.items() if k != "observations"}
-        )
-        return result
-
-    @staticmethod
-    def _neutral_metrics() -> dict[str, object]:
-        return {
-            "total_return": 0.0,
-            "annualized_return": 0.0,
-            "volatility": 0.0,
-            "sharpe_ratio": 0.0,
-            "max_drawdown": 0.0,
-            "var_95": 0.0,
-            "observations": 0,
-        }
-
-
-def _normal_ppf(prob: float) -> float:
-    """Standard normal quantile (Acklam's algorithm) — no scipy needed.
-
-    Approximates the inverse CDF of N(0,1) to double precision over the
-    typical range; probabilities are clamped away from 0 and 1.
-    """
-    prob = max(1e-9, min(prob, 1.0 - 1e-9))
-
-    a = [
-        -3.969683028665376e01,
-        2.209460984245205e02,
-        -2.759285104469687e02,
-        1.383577518672690e02,
-        -3.066479806614716e01,
-        2.506628277459239e00,
-    ]
-    b = [
-        -5.447609879822406e01,
-        1.615858368580409e02,
-        -1.556989798598866e02,
-        6.680131188771972e01,
-        -1.328068155288572e01,
-    ]
-    c = [
-        -7.784894002430293e-03,
-        -3.223964580411365e-01,
-        -2.400758277161838e00,
-        -2.549732539343734e00,
-        4.374664141464968e00,
-        2.938163982698783e00,
-    ]
-    d = [
-        7.784695709041462e-03,
-        3.224671290700398e-01,
-        2.445134137142996e00,
-        3.754408661907416e00,
-    ]
-    plow, phigh = 0.02425, 1.0 - 0.02425
-
-    if prob < plow:  # rational approximation for the lower tail
-        q = math.sqrt(-2.0 * math.log(prob))
-        num = ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
-        den = (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0
-        return num / den
-    if prob <= phigh:  # central region
-        q = prob - 0.5
-        r = q * q
-        num = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q
-        den = ((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0
-        return num / den
-    # upper tail (symmetry)
-    q = math.sqrt(-2.0 * math.log(1.0 - prob))
-    num = ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
-    den = (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0
-    return -num / den
 
 
 class MonteCarloProjection:

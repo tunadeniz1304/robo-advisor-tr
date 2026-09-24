@@ -15,7 +15,8 @@ from core.app import create_app
 from core.config import BASE_DIR
 from core.money import Money, to_decimal
 from llm.clients import LLMClient, LLMProviderError, LLMResponse
-from services.analytics_service import AnalyticsService
+from services.analytics.engine import reconstruct
+from services.analytics.performance import tear_sheet, time_weighted_return
 from services.portfolio_service import PortfolioService
 from tests.conftest import (
     FakeMarketSource,
@@ -84,18 +85,21 @@ def test_bug01_llm_failure_rebalances_exactly_once(tmp_path: Path) -> None:
 
 
 def test_bug02_total_return_is_compounded() -> None:
-    frame = pd.DataFrame({"A": [0.10, 0.10]})
-    m = AnalyticsService().performance_metrics(frame)
-    assert m["total_return"] == pytest.approx(0.21)
+    # v2: performans tek motordan gelir (services.analytics.engine / tear_sheet).
+    idx = pd.bdate_range("2024-01-01", periods=2)
+    sheet = tear_sheet(pd.Series([0.10, 0.10], index=idx))
+    assert sheet["total_return"] == pytest.approx(0.21)
 
 
 def test_bug02_uses_actual_weights_not_equal() -> None:
+    # Gerçek miktarlarla (ledger) değerleme: ağırlıklar piyasa değeriyle kayar,
+    # eşit ağırlık ya da sabit ağırlık varsayımı yoktur.
     idx = pd.bdate_range("2024-01-01", periods=10)
-    frame = pd.DataFrame({"A": [0.01] * 10, "B": [0.0] * 10}, index=idx)
-    m = AnalyticsService().performance_metrics(frame, weights={"A": 0.25, "B": 0.75})
-    assert m["total_return"] == pytest.approx(1.0025**10 - 1.0, abs=1e-6)
-    eq = AnalyticsService().performance_metrics(frame)
-    assert eq["total_return"] == pytest.approx(1.005**10 - 1.0, abs=1e-6)
+    prices = pd.DataFrame({"A": 1.01 ** np.arange(10), "B": np.ones(10)}, index=idx)
+    values, flows = reconstruct(prices, {"A": 25.0, "B": 75.0}, 0.0, [], [])
+    twr, _ = time_weighted_return(values, flows)
+    assert twr == pytest.approx((25 * 1.01**9 + 75) / 100 - 1.0, abs=1e-12)
+    assert twr != pytest.approx(0.5 * (1.01**9 - 1.0))  # eşit ağırlık değil
 
 
 # -- #3 tangency -----------------------------------------------------------------
