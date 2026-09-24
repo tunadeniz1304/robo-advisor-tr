@@ -1,0 +1,165 @@
+"""v2 audit findings A.1–A.4: one ledger-based performance engine.
+
+* A.1 — ``/performance`` and ``/report`` must agree (same engine, real TL
+  risk-free rate everywhere).
+* A.2 — GIPS flow classification: only client deposits/withdrawals are
+  external; dividends, coupons, interest, fees, taxes and commissions are
+  portfolio-internal and belong in the TWR.
+* A.3 — ledger events on non-trading days roll forward to the next
+  valuation day instead of being dropped.
+* A.4 — explicit metric names (cumulative vs annualised) with the period.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+
+import pandas as pd
+import pytest
+from fastapi.testclient import TestClient
+
+from tests.conftest import create_customer, create_portfolio
+
+DAYS = pd.bdate_range("2026-08-03", "2026-08-14")  # Pzt 3 Ağu → Cum 14 Ağu (10 işlem günü)
+PRICE = 100.0
+
+
+class StubMarket:
+    """Constant-price market so that only ledger events move the value."""
+
+    def __init__(self, symbols: list[str], rf: float = 0.40) -> None:
+        self.panel = pd.DataFrame({s: PRICE for s in symbols}, index=DAYS)
+        self._rf = rf
+
+    async def history(self, symbols: list[str]) -> pd.DataFrame:
+        return self.panel[[s for s in symbols if s in self.panel.columns]]
+
+    async def returns(self, symbols: list[str], **_: Any) -> pd.DataFrame:
+        return (await self.history(symbols)).pct_change().iloc[1:]
+
+    def risk_free_rate(self) -> float:
+        return self._rf
+
+    def inflation_yoy(self) -> float:
+        return 0.30
+
+
+def _portfolio_with_flows(
+    client: TestClient, *, cash: float, flows: list[tuple[str, float, datetime]]
+) -> int:
+    """Create a 100×THYAO portfolio whose *current* cash already includes ``flows``."""
+    cid = create_customer(client, email=f"perf{len(flows)}{cash}@example.com")["id"]
+    pid = int(create_portfolio(client, cid, cash=cash, holdings={"THYAO.IS": 100.0})["id"])
+
+    from core.database import session_factory
+    from models import CashFlow
+
+    async def _insert() -> None:
+        async with session_factory() as s:
+            for kind, amount, when in flows:
+                s.add(
+                    CashFlow(
+                        portfolio_id=pid, kind=kind, amount=Decimal(str(amount)), occurred_at=when
+                    )
+                )
+            await s.commit()
+
+    client.portal.call(_insert)
+    return pid
+
+
+def _history(client: TestClient, pid: int) -> tuple[pd.Series, pd.Series]:
+    from core.database import session_factory
+    from models import Portfolio
+    from services.analytics.history import value_history
+
+    async def _run() -> tuple[pd.Series, pd.Series]:
+        async with session_factory() as s:
+            portfolio = await s.get(Portfolio, pid)
+            return await value_history(s, StubMarket(["THYAO.IS"]), portfolio)  # type: ignore[arg-type]
+
+    return client.portal.call(_run)
+
+
+def test_dividend_is_internal_return_not_external_flow(client: TestClient) -> None:
+    # 10.000 TL hisse + 1.000 nakit; 7 Ağu'da 110 TL temettü → TWR = +%1.
+    pid = _portfolio_with_flows(
+        client, cash=1_110.0, flows=[("DIVIDEND", 110.0, datetime(2026, 8, 7, 10))]
+    )
+    values, flows = _history(client, pid)
+    from services.analytics.performance import time_weighted_return
+
+    twr, _ = time_weighted_return(values, flows)
+    assert float(flows.abs().sum()) == pytest.approx(0.0)
+    assert twr == pytest.approx(0.01, abs=1e-9)
+
+
+def test_fee_reduces_twr(client: TestClient) -> None:
+    pid = _portfolio_with_flows(client, cash=945.0, flows=[("FEE", 55.0, datetime(2026, 8, 7, 10))])
+    values, flows = _history(client, pid)
+    from services.analytics.performance import time_weighted_return
+
+    twr, _ = time_weighted_return(values, flows)
+    assert float(flows.abs().sum()) == pytest.approx(0.0)
+    assert twr == pytest.approx(-0.005, abs=1e-9)
+
+
+def test_deposit_is_external_and_neutral_for_twr(client: TestClient) -> None:
+    pid = _portfolio_with_flows(
+        client, cash=6_000.0, flows=[("DEPOSIT", 5_000.0, datetime(2026, 8, 6, 10))]
+    )
+    values, flows = _history(client, pid)
+    from services.analytics.performance import time_weighted_return
+
+    twr, _ = time_weighted_return(values, flows)
+    assert float(flows.sum()) == pytest.approx(5_000.0)
+    assert twr == pytest.approx(0.0, abs=1e-12)
+
+
+def test_saturday_deposit_rolls_forward_to_monday(client: TestClient) -> None:
+    # Cumartesi 8 Ağu yatırma: kaybolmamalı, Pazartesi 10 Ağu'ya taşınmalı.
+    pid = _portfolio_with_flows(
+        client, cash=6_000.0, flows=[("DEPOSIT", 5_000.0, datetime(2026, 8, 8, 11))]
+    )
+    values, flows = _history(client, pid)
+    assert float(flows.sum()) == pytest.approx(5_000.0)
+    assert float(flows.loc["2026-08-10"]) == pytest.approx(5_000.0)
+    assert float(values.iloc[0]) == pytest.approx(11_000.0)
+    assert float(values.loc["2026-08-07"]) == pytest.approx(11_000.0)
+    assert float(values.loc["2026-08-10"]) == pytest.approx(16_000.0)
+
+
+def test_flow_after_last_price_day_is_valued_on_last_day(client: TestClient) -> None:
+    # Fiyat verisi 14 Ağu'da bitiyor; 20 Ağu yatırma son değerleme gününe eklenir.
+    pid = _portfolio_with_flows(
+        client, cash=6_000.0, flows=[("DEPOSIT", 5_000.0, datetime(2026, 8, 20, 9))]
+    )
+    values, flows = _history(client, pid)
+    assert float(values.iloc[0]) == pytest.approx(11_000.0)
+    assert float(flows.iloc[-1]) == pytest.approx(5_000.0)
+
+
+def test_performance_and_report_endpoints_agree(client: TestClient) -> None:
+    cid = create_customer(client)["id"]
+    pid = create_portfolio(client, cid)["id"]
+    perf = client.get(f"/api/v1/portfolios/{pid}/performance").json()
+    rep = client.get(f"/api/v1/portfolios/{pid}/report").json()
+    rf = client.app.state.container.market.risk_free_rate()  # type: ignore[attr-defined]
+    assert rf > 0
+    assert perf["risk_free_rate"] == pytest.approx(rf)
+    assert rep["tear_sheet"]["risk_free_rate"] == pytest.approx(rf)
+    assert perf["sharpe"] == pytest.approx(rep["tear_sheet"]["sharpe"])
+    assert perf["twr_cumulative"] == pytest.approx(rep["twr_cumulative"])
+    assert perf["twr_annualized"] == pytest.approx(rep["twr_annualized"])
+
+
+def test_report_labels_cumulative_and_annualized_metrics(client: TestClient) -> None:
+    cid = create_customer(client)["id"]
+    pid = create_portfolio(client, cid)["id"]
+    rep = client.get(f"/api/v1/portfolios/{pid}/report").json()
+    for key in ("twr_cumulative", "twr_annualized", "mwr_annualized", "period"):
+        assert key in rep, key
+    assert {"start", "end", "days", "years"} <= set(rep["period"])
+    assert "twr" not in rep and "mwr" not in rep  # belirsiz eski adlar kalktı
