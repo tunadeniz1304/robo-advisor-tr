@@ -6,9 +6,11 @@
   used for the unique, searchable ``customers.email_hash`` column without
   storing the e-mail in clear text.
 
-The key comes from ``PII_ENCRYPTION_KEY`` (a Fernet key). When it is missing
-a deterministic development key is derived and a warning is logged once; this
-keeps the demo zero-config while making the production requirement explicit.
+The key comes from ``PII_ENCRYPTION_KEY`` (a Fernet key). Only in the dev and
+test environments may it be missing: a deterministic development key is then
+derived and a warning is logged. In production the application refuses to
+start without a key (:meth:`core.config.Settings.validate` and
+:func:`configure_encryption` with ``allow_dev_key=False``).
 """
 
 from __future__ import annotations
@@ -43,15 +45,25 @@ def _derive_dev_key() -> bytes:
     return base64.urlsafe_b64encode(hashlib.sha256(_DEV_SEED).digest())
 
 
-def configure_encryption(key: str | None) -> bool:
+class EncryptionKeyError(RuntimeError):
+    """Raised when no usable PII key is configured outside dev/test."""
+
+
+def configure_encryption(key: str | None, *, allow_dev_key: bool = True) -> bool:
     """Install the process-wide PII key.
 
     Args:
         key: A urlsafe base64 Fernet key, or ``None`` for the dev key.
+        allow_dev_key: Whether the derived development key may be used.
 
     Returns:
         ``True`` when a real (non-dev) key is active.
+
+    Raises:
+        EncryptionKeyError: When ``key`` is missing and the dev key is not allowed.
     """
+    if not key and not allow_dev_key:
+        raise EncryptionKeyError("PII_ENCRYPTION_KEY tanımlı değil (prod ortamında zorunlu).")
     if key:
         raw = key.encode("ascii")
         _KEYS.is_dev = False
@@ -130,6 +142,7 @@ class EncryptedDecimal(TypeDecorator[Decimal]):
 
 
 __all__ = [
+    "EncryptionKeyError",
     "EncryptedDecimal",
     "EncryptedString",
     "blind_index",

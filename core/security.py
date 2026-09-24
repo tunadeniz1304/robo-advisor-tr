@@ -17,6 +17,28 @@ import jwt
 
 ROLES = ("musteri", "danisman", "admin")
 _ALGORITHM = "HS256"
+MIN_SIGNING_KEY_LENGTH = 32
+MIN_SIGNING_KEY_DISTINCT = 12
+MIN_SIGNING_KEY_ENTROPY_BITS = 3.5  # karakter başına Shannon entropisi
+
+
+def secret_is_strong(secret: str | None) -> bool:
+    """Minimum length, variety and per-character Shannon entropy of a secret.
+
+    Rejects the development default, short secrets and repetitive ones such as
+    ``"a" * 64`` (entropy 0 bits/char).
+    """
+    import math
+    from collections import Counter
+
+    if not secret or secret.startswith("dev-only") or len(secret) < MIN_SIGNING_KEY_LENGTH:
+        return False
+    counts = Counter(secret)
+    if len(counts) < MIN_SIGNING_KEY_DISTINCT:
+        return False
+    n = len(secret)
+    entropy = -sum(c / n * math.log2(c / n) for c in counts.values())
+    return entropy >= MIN_SIGNING_KEY_ENTROPY_BITS
 
 
 class TokenError(ValueError):

@@ -50,6 +50,8 @@ LLM_BASE_URL_ALIASES: tuple[str, ...] = (
 LLM_MODEL_ALIASES: tuple[str, ...] = ("LLM_MODEL", "DEEPSEEK_MODEL")
 
 LLM_MODES = ("auto", "live", "demo")
+ENVIRONMENTS = ("dev", "test", "prod")
+SHARED_BACKENDS = ("memory", "redis")
 LLM_PROVIDERS = ("openai_compatible", "anthropic")
 
 
@@ -172,8 +174,15 @@ class Settings:
         data_mode: ``auto`` (live → snapshot), ``live`` or ``snapshot``.
         market_cache_ttl_seconds: Shared market cache TTL.
         evds_api_key: TCMB EVDS key (optional, secret).
-        checkpoint_db: SQLite file of the durable LangGraph checkpointer.
+        checkpoint_db: SQLite file of the durable LangGraph checkpointer
+            (ignored when ``database_url`` is PostgreSQL: the checkpointer then
+            uses the same database).
         auto_migrate: Run Alembic migrations on startup.
+        metrics_public: Serve ``/metrics`` without authentication.
+        metrics_token: Bearer token for ``/metrics`` (when not public).
+        lock_backend: ``memory`` (single process) or ``redis`` (shared).
+        rate_limit_storage: ``memory`` or ``redis``.
+        redis_url: Redis URL for the shared backends.
     """
 
     app_name: str = "Otonom Finansal Danışman"
@@ -217,6 +226,11 @@ class Settings:
     checkpoint_db: str | None = None
     auto_migrate: bool = True
     seed_demo: bool = False
+    metrics_public: bool = False
+    metrics_token: str | None = field(default=None, repr=False)
+    lock_backend: str = "memory"
+    rate_limit_storage: str = "memory"
+    redis_url: str | None = field(default=None, repr=False)
 
     # -- Derived properties ------------------------------------------------
 
@@ -282,8 +296,45 @@ class Settings:
             raise ConfigurationError(
                 f"Geçersiz DATA_MODE='{self.data_mode}'. Geçerli değerler: auto, live, snapshot."
             )
-        if self.is_production and self.jwt_secret.startswith("dev-only"):
-            raise ConfigurationError("Prod ortamında JWT_SECRET tanımlanmalıdır.")
+        if self.environment not in ENVIRONMENTS:
+            raise ConfigurationError(
+                f"Geçersiz APP_ENV='{self.environment}'. Geçerli değerler: {', '.join(ENVIRONMENTS)}."
+            )
+        for name, value in (
+            ("LOCK_BACKEND", self.lock_backend),
+            ("RATE_LIMIT_STORAGE", self.rate_limit_storage),
+        ):
+            if value not in SHARED_BACKENDS:
+                raise ConfigurationError(
+                    f"Geçersiz {name}='{value}'. Geçerli değerler: memory, redis."
+                )
+            if value == "redis" and not self.redis_url:
+                raise ConfigurationError(f"{name}=redis için REDIS_URL tanımlanmalıdır.")
+        if self.is_production:
+            self._validate_production_secrets()
+
+    def _validate_production_secrets(self) -> None:
+        """Prod refuses to start with weak or missing secrets."""
+        from core.security import secret_is_strong
+
+        if not secret_is_strong(self.jwt_secret):
+            raise ConfigurationError(
+                "Prod ortamında JWT_SECRET en az 32 karakter, yeterince çeşitli (entropili) ve "
+                "varsayılandan farklı olmalıdır."
+            )
+        if not self.pii_encryption_key:
+            raise ConfigurationError(
+                "Prod ortamında PII_ENCRYPTION_KEY (Fernet anahtarı) zorunludur; geliştirme "
+                "anahtarı yalnızca dev/test ortamında kullanılabilir."
+            )
+        try:
+            from cryptography.fernet import Fernet
+
+            Fernet(self.pii_encryption_key.encode("ascii"))
+        except (ValueError, TypeError) as exc:
+            raise ConfigurationError(
+                "PII_ENCRYPTION_KEY geçerli bir Fernet anahtarı değil."
+            ) from exc
 
     # -- Factory -----------------------------------------------------------
 
@@ -331,6 +382,11 @@ class Settings:
             checkpoint_db=os.getenv("CHECKPOINT_DB") or str(BASE_DIR / "checkpoints.sqlite"),
             auto_migrate=_env_bool("AUTO_MIGRATE", True),
             seed_demo=_env_bool("SEED_DEMO", False),
+            metrics_public=_env_bool("METRICS_PUBLIC", False),
+            metrics_token=_first_env(("METRICS_TOKEN",)),
+            lock_backend=_env_str("LOCK_BACKEND", "memory").lower(),
+            rate_limit_storage=_env_str("RATE_LIMIT_STORAGE", "memory").lower(),
+            redis_url=_first_env(("REDIS_URL",)),
         )
 
 

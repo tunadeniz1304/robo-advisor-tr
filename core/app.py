@@ -140,13 +140,15 @@ def create_app(
     if settings is None:
         settings = Settings.load()
     settings.validate()
-    configure_encryption(settings.pii_encryption_key)
+    configure_encryption(
+        settings.pii_encryption_key, allow_dev_key=settings.environment in ("dev", "test")
+    )
 
     app = FastAPI(
         title=settings.app_name,
         version=settings.version,
         description=(
-            "Kurumsal dijital varlık yönetimi platformu: SPK uygunluk testi, çoklu "
+            "Dijital varlık yönetimi (robo-advisor) prototipi: uygunluk testi, çoklu "
             "varlık optimizasyonu, hedef bazlı planlama, öneri→onay→yürütme ve "
             "veriyle topraklanmış LLM yorumu. Bilgi amaçlıdır, yatırım tavsiyesi değildir."
         ),
