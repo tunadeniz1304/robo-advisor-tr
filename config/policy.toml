@@ -158,6 +158,10 @@ proposal_ttl_hours = 24
 # Onay anında fiyat bu orandan fazla değiştiyse öneri süresi dolar
 price_tolerance = 0.03
 lot_method = "HIFO"           # FIFO | HIFO
+# Rebalance sonrası izin verilen en yüksek atıl nakit ağırlığı
+max_cash_weight = 0.02
+# Min-devir LP'sinde satışların ek maliyet ağırlığı (satışı azaltır)
+sell_penalty = 0.5
 
 [rebalance.bands]
 para_piyasasi = 0.03
