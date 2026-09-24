@@ -141,6 +141,25 @@ class MarketDataService(MarketService):
             return float(macro["POLICY_RATE"].dropna().iloc[-1])
         return float(get_policy().optimization.get("fallback_risk_free_rate", 0.35))
 
+    def risk_free_rate_at(self, when: pd.Timestamp) -> float:
+        """Policy rate in force on ``when`` (no look-ahead for backtests)."""
+        macro = self.macro()
+        if "POLICY_RATE" in macro.columns:
+            series = macro["POLICY_RATE"].dropna().sort_index()
+            known = series[series.index <= pd.Timestamp(when)]
+            if not known.empty:
+                return float(known.iloc[-1])
+            if not series.empty:
+                return float(series.iloc[0])
+        return float(get_policy().optimization.get("fallback_risk_free_rate", 0.35))
+
+    def mean_risk_free_rate(self, start: pd.Timestamp, end: pd.Timestamp) -> float:
+        """Average policy rate over ``[start, end]`` (test-period Sharpe)."""
+        days = pd.date_range(start, end, freq="MS")
+        if len(days) == 0:
+            return self.risk_free_rate_at(end)
+        return float(np.mean([self.risk_free_rate_at(d) for d in days]))
+
     def inflation_yoy(self) -> float:
         """Latest year-on-year TÜFE inflation."""
         macro = self.macro()

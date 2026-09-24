@@ -227,6 +227,10 @@ class OptimizationService:
             raise st.OptimizationError("Uygun enstrüman bulunamadı.")
         return method, level, model_level, model_weights, symbols, excluded
 
+    def allowed_symbols(self, req: OptimizationRequest) -> list[str]:
+        """Instruments the request may use (suitability gate and exclusions)."""
+        return self._prepare(req)[4]
+
     async def optimize(self, req: OptimizationRequest) -> OptimizationResult:
         """Optimise on the latest estimation window of the shared market data."""
         _, _, _, _, symbols, _ = self._prepare(req)
