@@ -11,7 +11,6 @@ session right after the business transaction commits.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ from typing import Any
 from sqlalchemy import select
 
 from core.database import session_factory
+from core.locks import get_lock_manager
 from core.logging import get_logger
 from models import AuditLog
 from models.base import utcnow
@@ -28,16 +28,11 @@ from models.base import utcnow
 logger = get_logger("otonom.audit")
 
 GENESIS_HASH = "0" * 64
-_LOCKS: dict[int, asyncio.Lock] = {}
 
 
-def _lock() -> asyncio.Lock:
-    """One lock per event loop (tests run several loops in one process)."""
-    loop_id = id(asyncio.get_running_loop())
-    lock = _LOCKS.get(loop_id)
-    if lock is None:
-        lock = _LOCKS[loop_id] = asyncio.Lock()
-    return lock
+def _lock() -> Any:
+    """Serialise appends to the hash chain (shared across processes with Redis)."""
+    return get_lock_manager().lock("audit:chain")
 
 
 def _normalise(payload: Any) -> Any:

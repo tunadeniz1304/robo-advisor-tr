@@ -22,7 +22,6 @@ Guarantees:
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -32,6 +31,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from core.database import session_factory
+from core.locks import MemoryLockManager, RedisLockManager
 from core.logging import get_logger
 from core.metrics import REBALANCE_TOTAL
 from core.money import to_decimal
@@ -132,22 +132,20 @@ class ProposalService:
         gateway: LLMGateway,
         policy: InvestmentPolicy | None = None,
         broker: SimulatedBroker | None = None,
+        locks: MemoryLockManager | RedisLockManager | None = None,
     ) -> None:
         self._market = market
         self._optimizer = optimizer
         self._gateway = gateway
         self._p = policy or get_policy()
         self._broker = broker or SimulatedBroker(self._p)
-        self._locks: dict[tuple[int, int], asyncio.Lock] = {}
+        self._locks = locks or MemoryLockManager()
 
     # -- helpers -----------------------------------------------------------------
 
-    def _lock(self, portfolio_id: int) -> asyncio.Lock:
-        key = (id(asyncio.get_running_loop()), portfolio_id)
-        lock = self._locks.get(key)
-        if lock is None:
-            lock = self._locks[key] = asyncio.Lock()
-        return lock
+    def _lock(self, portfolio_id: int) -> Any:
+        """Portfolio write lock (in-process or shared via Redis)."""
+        return self._locks.lock(f"portfolio:{portfolio_id}")
 
     async def current_prices(self, symbols: list[str]) -> dict[str, float]:
         """Latest prices (panel last row, snapshot fallback per symbol)."""

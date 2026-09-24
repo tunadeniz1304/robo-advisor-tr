@@ -180,6 +180,8 @@ class Settings:
         auto_migrate: Run Alembic migrations on startup.
         metrics_public: Serve ``/metrics`` without authentication.
         metrics_token: Bearer token for ``/metrics`` (when not public).
+        trust_forwarded_for: Use ``X-Forwarded-For`` for rate-limit keys
+            (only behind a trusted proxy).
         lock_backend: ``memory`` (single process) or ``redis`` (shared).
         rate_limit_storage: ``memory`` or ``redis``.
         redis_url: Redis URL for the shared backends.
@@ -228,6 +230,7 @@ class Settings:
     seed_demo: bool = False
     metrics_public: bool = False
     metrics_token: str | None = field(default=None, repr=False)
+    trust_forwarded_for: bool = False
     lock_backend: str = "memory"
     rate_limit_storage: str = "memory"
     redis_url: str | None = field(default=None, repr=False)
@@ -384,6 +387,7 @@ class Settings:
             seed_demo=_env_bool("SEED_DEMO", False),
             metrics_public=_env_bool("METRICS_PUBLIC", False),
             metrics_token=_first_env(("METRICS_TOKEN",)),
+            trust_forwarded_for=_env_bool("TRUST_FORWARDED_FOR", False),
             lock_backend=_env_str("LOCK_BACKEND", "memory").lower(),
             rate_limit_storage=_env_str("RATE_LIMIT_STORAGE", "memory").lower(),
             redis_url=_first_env(("REDIS_URL",)),

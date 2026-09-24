@@ -11,7 +11,9 @@
   by the checkpointer and resumed with ``Command(resume={...})`` when a
   human approves or rejects the proposal.
 * The graph is compiled once per :class:`AdvisorGraph`; production uses the
-  durable ``AsyncSqliteSaver`` (``CHECKPOINT_DB``), tests an in-memory saver.
+  durable ``AsyncSqliteSaver`` (``CHECKPOINT_DB``) or, when the application
+  database is PostgreSQL, ``AsyncPostgresSaver`` on the same database (shared
+  by every app instance); tests use an in-memory saver.
 """
 
 from __future__ import annotations
@@ -72,6 +74,26 @@ class AdvisorGraph:
             self._conn = None
 
 
+def is_postgres_url(url: str) -> bool:
+    return url.startswith(("postgresql://", "postgresql+", "postgres://"))
+
+
+def postgres_dsn(url: str) -> str:
+    """libpq DSN from a SQLAlchemy URL (``postgresql+asyncpg://`` → ``postgresql://``)."""
+    scheme, rest = url.split("://", 1)
+    return f"postgresql://{rest}" if scheme.startswith("postgres") else url
+
+
+class _AsyncExit:
+    """Adapter so :meth:`AdvisorGraph.aclose` can close an async context manager."""
+
+    def __init__(self, manager: Any) -> None:
+        self._manager = manager
+
+    async def close(self) -> None:
+        await self._manager.__aexit__(None, None, None)
+
+
 def _route(next_node: str) -> Any:
     return lambda s: END if s.get("error") else next_node
 
@@ -106,17 +128,25 @@ async def build_rebalance_graph(
     graph.add_edge("execute", "report")
     graph.add_edge("report", END)
 
+    if checkpoint_db is not None and is_postgres_url(str(checkpoint_db)):
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+        manager = AsyncPostgresSaver.from_conn_string(postgres_dsn(str(checkpoint_db)))
+        saver = await manager.__aenter__()
+        await saver.setup()
+        logger.info("rebalance_graph_compiled", durable=True, backend="postgres")
+        return AdvisorGraph(graph.compile(checkpointer=saver), saver, _conn=_AsyncExit(manager))
     if checkpoint_db is not None:
         import aiosqlite
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
         conn = await aiosqlite.connect(str(checkpoint_db))
-        saver = AsyncSqliteSaver(conn)
-        logger.info("rebalance_graph_compiled", durable=True)
-        return AdvisorGraph(graph.compile(checkpointer=saver), saver, _conn=conn)
+        sqlite_saver = AsyncSqliteSaver(conn)
+        logger.info("rebalance_graph_compiled", durable=True, backend="sqlite")
+        return AdvisorGraph(graph.compile(checkpointer=sqlite_saver), sqlite_saver, _conn=conn)
     saver_mem = InMemorySaver()
     logger.info("rebalance_graph_compiled", durable=False)
     return AdvisorGraph(graph.compile(checkpointer=saver_mem), saver_mem)
 
 
-__all__ = ["AdvisorGraph", "build_rebalance_graph"]
+__all__ = ["AdvisorGraph", "build_rebalance_graph", "is_postgres_url", "postgres_dsn"]

@@ -15,6 +15,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.config import Settings
+from core.locks import (
+    MemoryLockManager,
+    RedisLockManager,
+    build_lock_manager,
+    set_lock_manager,
+)
 from core.logging import get_logger
 from llm.clients import LLMClient, get_llm_client
 from llm.gateway import LLMGateway
@@ -59,6 +65,7 @@ class Container:
     optimizer: OptimizationService
     proposals: ProposalService
     planner: GoalPlanningService
+    locks: MemoryLockManager | RedisLockManager = field(default_factory=MemoryLockManager)
     extras: dict[str, Any] = field(default_factory=dict)
 
     async def aclose(self) -> None:
@@ -97,14 +104,16 @@ def build_container(
     client = llm_client if llm_client is not None else get_llm_client(settings)
     gateway = LLMGateway(settings, client=client, recorder=record_llm_usage)
     optimizer = OptimizationService(market)
-    proposals = ProposalService(market, optimizer, gateway)
+    locks = build_lock_manager(settings.lock_backend, redis_url=settings.redis_url)
+    set_lock_manager(locks)
+    proposals = ProposalService(market, optimizer, gateway, locks=locks)
     advisor = AdvisorService(
         settings=settings,
         market_service=market,
         gateway=gateway,
         optimizer=optimizer,
         proposals=proposals,
-        checkpoint_db=settings.checkpoint_db,
+        checkpoint_db=checkpoint_target(settings),
     )
     return Container(
         settings=settings,
@@ -114,7 +123,20 @@ def build_container(
         optimizer=optimizer,
         proposals=proposals,
         planner=GoalPlanningService(market, gateway),
+        locks=locks,
     )
 
 
-__all__ = ["Container", "build_container", "record_llm_usage"]
+def checkpoint_target(settings: Settings) -> str | None:
+    """Where LangGraph checkpoints live.
+
+    PostgreSQL application database → the same database (shared by all app
+    instances, ``langgraph-checkpoint-postgres``); otherwise the SQLite file
+    ``CHECKPOINT_DB`` (single process) or in-memory when unset.
+    """
+    if settings.database_url.startswith(("postgresql", "postgres")):
+        return settings.database_url
+    return settings.checkpoint_db
+
+
+__all__ = ["Container", "build_container", "checkpoint_target", "record_llm_usage"]

@@ -5,6 +5,7 @@ pytest>=8.0.0,<9.0.0
 pytest-asyncio>=0.23.0,<1.0.0
 pytest-cov>=5.0.0
 respx>=0.21.0
+fakeredis[lua]>=2.20.0   # çoklu süreç kilit/rate limit testleri
 ruff>=0.6.0
 mypy>=1.10.0
 # Referans karşılaştırma (yalnızca testler): Black-Litterman Ω = Idzorek

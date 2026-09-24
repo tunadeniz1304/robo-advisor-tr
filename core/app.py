@@ -158,8 +158,13 @@ def create_app(
     app.state.container = build_container(
         settings, market_source=market_source, llm_client=llm_client
     )
+    rate_redis = None
+    if settings.rate_limit_storage == "redis":
+        from core import redis_client
+
+        rate_redis = redis_client.sync_client(str(settings.redis_url))
     app.state.rate_limiter = RateLimiter(
-        settings.rate_limit_default, enabled=settings.rate_limit_enabled
+        settings.rate_limit_default, enabled=settings.rate_limit_enabled, redis_client=rate_redis
     )
 
     app.add_middleware(RequestContextMiddleware)

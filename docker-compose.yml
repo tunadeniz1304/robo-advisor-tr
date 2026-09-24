@@ -1,7 +1,8 @@
 # =============================================================================
 # Otonom Finansal Danışman — Docker Compose
-#   api : FastAPI + LangGraph (uvicorn)
-#   db  : PostgreSQL 16 (yalnızca iç ağda; host'a port açılmaz)
+#   api   : FastAPI + LangGraph (uvicorn)
+#   db    : PostgreSQL 16 (uygulama + LangGraph checkpoint'leri; host'a port açılmaz)
+#   redis : paylaşılan portföy kilidi ve rate limit (birden çok api örneği için)
 #
 # Gizli değerler proje kökündeki .env dosyasından env_file ile verilir; imaja
 # kopyalanmaz. .env yoksa uygulama deterministik DEMO modunda çalışır.
@@ -19,10 +20,12 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-advisor}:${POSTGRES_PASSWORD:-advisor-dev-only}@db:5432/${POSTGRES_DB:-advisor}
-      APP_ENV: ${APP_ENV:-demo}
+      APP_ENV: ${APP_ENV:-dev}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_JSON: "true"
-      CHECKPOINT_DB: /opt/advisor/state/checkpoints.sqlite
+      REDIS_URL: redis://redis:6379/0
+      LOCK_BACKEND: redis
+      RATE_LIMIT_STORAGE: redis
       SEED_DEMO: ${SEED_DEMO:-true}
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
     volumes:
@@ -31,6 +34,8 @@ services:
       - "${API_PORT:-8000}:8000"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).status==200 else 1)"]
@@ -59,6 +64,19 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-advisor} -d $${POSTGRES_DB:-advisor}"]
       interval: 5s
       timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: otonom-advisor-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 10
 
 volumes:

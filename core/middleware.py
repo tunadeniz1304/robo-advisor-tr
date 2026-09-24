@@ -41,30 +41,63 @@ API_CSP = "default-src 'none'; frame-ancestors 'none'"
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 
 
-class RateLimiter:
-    """Per-app moving-window rate limiter (``limits`` library, in memory)."""
+RATE_KEY_PREFIX = "rl:"
 
-    def __init__(self, default_limit: str, enabled: bool = True) -> None:
+
+class RateLimiter:
+    """Rate limiter: in-memory moving window or a Redis fixed window.
+
+    With ``redis_client`` the counters live in Redis (``INCR`` + ``EXPIRE``
+    per window bucket, atomic), so several application processes share one
+    limit per client; otherwise the ``limits`` moving window runs in memory.
+    """
+
+    def __init__(
+        self, default_limit: str, enabled: bool = True, *, redis_client: Any = None
+    ) -> None:
         self.enabled = enabled
+        self._redis = redis_client
         self._storage = MemoryStorage()
         self._limiter = MovingWindowRateLimiter(self._storage)
         self._default = parse(default_limit)
+
+    @property
+    def backend(self) -> str:
+        return "redis" if self._redis is not None else "memory"
 
     def hit(self, key: str, limit: str | None = None) -> bool:
         """Consume one unit; returns ``False`` when the limit is exceeded."""
         if not self.enabled:
             return True
         item = parse(limit) if limit else self._default
-        return bool(self._limiter.hit(item, key))
+        if self._redis is None:
+            return bool(self._limiter.hit(item, key))
+        window = int(item.get_expiry())
+        bucket = int(time.time() // window)
+        redis_key = f"{RATE_KEY_PREFIX}{key}:{item.amount}/{window}:{bucket}"
+        pipe = self._redis.pipeline()
+        pipe.incr(redis_key)
+        pipe.expire(redis_key, window + 1)
+        count, _ = pipe.execute()
+        return int(count) <= int(item.amount)
 
     def reset(self) -> None:
         self._storage.reset()
+        if self._redis is not None:
+            for key in self._redis.scan_iter(f"{RATE_KEY_PREFIX}*"):
+                self._redis.delete(key)
 
 
 def client_key(request: Request) -> str:
-    """Rate limit key: client IP (first ``X-Forwarded-For`` hop if present)."""
+    """Rate limit key: the client IP.
+
+    ``X-Forwarded-For`` is honoured only with ``TRUST_FORWARDED_FOR=true``
+    (behind a trusted reverse proxy); otherwise any client could pick its own
+    key and bypass the limit.
+    """
+    settings = getattr(request.app.state, "settings", None)
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
+    if forwarded and getattr(settings, "trust_forwarded_for", False):
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "anon"
 
