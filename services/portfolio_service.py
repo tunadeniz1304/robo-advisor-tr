@@ -1,30 +1,28 @@
-"""Markowitz Modern Portfolio Theory (MPT) engine — ``numpy``/``pandas``.
+"""Markowitz Modern Portfolio Theory (MPT) engine — NumPy / SciPy.
 
-The Portfolio Manager uses this service to derive *target* asset weights from
-real market data:
+Target weights for the (legacy) single-strategy path:
 
-    1. Expected returns:   annualised mean of daily log/simple returns.
-    2. Covariance matrix:  annualised sample covariance of daily returns.
-    3. Optimal weights:    the *tangency portfolio* (maximum Sharpe ratio)
-       solved analytically from the covariance matrix, with long-only
-       handling; falls back to minimum-variance then to equal-weight when the
-       matrix is singular or no risk-free solution is feasible.
+    1. Expected returns: annualised mean of daily returns, **shrunk** toward
+       the cross-sectional grand mean (James-Stein) — sample means from short
+       windows are too noisy to optimise on directly.
+    2. Covariance: annualised sample covariance, Ledoit-Wolf style shrinkage
+       toward a scaled identity when requested.
+    3. Weights: the **constrained** maximum-Sharpe portfolio solved with
+       SLSQP (long-only bounds, full investment) against a real risk-free
+       rate (TL policy/money-market rate, not zero). When no asset beats the
+       risk-free rate the tangency portfolio is undefined; the engine falls
+       back to the minimum-variance portfolio.
 
-The risk ceiling produced by :class:`services.risk_service.RiskService` is
-applied afterwards: risky weights are scaled down and the remaining weight is
-allocated to a risk-free (cash) bucket, which the rebalancer models as cash.
-
-Design notes:
-    * Pure functions taking DataFrames in, dictionaries out — unit-testable
-      without a database or network.
-    * Shapes are validated explicitly; degenerate input is handled with a
-      documented fallback chain instead of crashing or emitting NaNs.
+The equity ceiling from the risk assessment scales risky weights; the rest is
+cash. The richer multi-strategy optimiser lives in
+:mod:`services.optimization`.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 
 from core.logging import get_logger
 
@@ -33,12 +31,38 @@ logger = get_logger("otonom.portfolio")
 # Number of trading days in a year (used to annualise moments).
 TRADING_DAYS = 252
 
-# Ridge term added to the covariance diagonal when the matrix is singular.
-_RIDGE = 1e-6
+# Ridge term added to the covariance diagonal for numerical stability.
+_RIDGE = 1e-8
 
 
 class PortfolioError(ValueError):
     """Raised when Markowitz optimisation cannot produce feasible weights."""
+
+
+def james_stein_means(sample_means: np.ndarray, cov: np.ndarray, n_obs: int) -> np.ndarray:
+    """Shrink sample means toward their grand mean (James-Stein estimator).
+
+    Args:
+        sample_means: Annualised sample means (n,).
+        cov: Annualised covariance matrix (n, n).
+        n_obs: Number of daily observations used.
+
+    Returns:
+        Shrunk annualised expected returns (n,).
+    """
+    n = len(sample_means)
+    if n < 3 or n_obs < 2:
+        return sample_means
+    grand = float(np.mean(sample_means))
+    diff = sample_means - grand
+    # Ortalamanın örnekleme varyansı ≈ σ²/T (yıllık ölçekte T yıl sayısı).
+    years = max(n_obs / TRADING_DAYS, 1e-6)
+    noise = float(np.trace(cov)) / n / years
+    denom = float(diff @ diff)
+    if denom <= 1e-18:
+        return sample_means
+    shrink = min(1.0, max(0.0, (n - 2) * noise / denom))
+    return grand + (1.0 - shrink) * diff
 
 
 class PortfolioService:
@@ -46,37 +70,22 @@ class PortfolioService:
 
     # -- public API ----------------------------------------------------------
 
-    def expected_returns(self, returns: pd.DataFrame) -> pd.Series:
-        """Annualised expected returns per asset.
-
-        Estimated as the arithmetic mean of daily returns scaled by trading
-        days. Rows are dates, columns are tickers.
-
-        Args:
-            returns: Daily simple returns frame.
-
-        Returns:
-            Series indexed by ticker with annualised expected returns.
-        """
+    def expected_returns(self, returns: pd.DataFrame, shrink: bool = True) -> pd.Series:
+        """Annualised expected returns per asset (optionally James-Stein shrunk)."""
         self._validate(returns)
-        daily_mean = returns.mean()
-        return daily_mean * TRADING_DAYS
+        means = returns.mean().to_numpy(dtype=float) * TRADING_DAYS
+        if shrink and returns.shape[1] >= 3:
+            cov = self.covariance_matrix(returns).to_numpy(dtype=float)
+            means = james_stein_means(means, cov, int(returns.shape[0]))
+        return pd.Series(means, index=returns.columns)
 
     def covariance_matrix(self, returns: pd.DataFrame) -> pd.DataFrame:
-        """Annualised sample covariance matrix of daily returns.
-
-        ``numpy.cov`` with ``rowvar=False`` treats columns (tickers) as
-        variables; the resulting matrix is scaled by trading days.
-
-        Args:
-            returns: Daily simple returns frame.
-
-        Returns:
-            A symmetric covariance DataFrame (ticker x ticker), annualised.
-        """
+        """Annualised sample covariance matrix of daily returns."""
         self._validate(returns)
-        values = returns.to_numpy(dtype=float)
-        cov = np.cov(values, rowvar=False)
+        values = returns.dropna().to_numpy(dtype=float)
+        if values.shape[0] < 2:
+            values = returns.fillna(0.0).to_numpy(dtype=float)
+        cov = np.atleast_2d(np.cov(values, rowvar=False))
         cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
         return pd.DataFrame(cov * TRADING_DAYS, index=returns.columns, columns=returns.columns)
 
@@ -86,29 +95,18 @@ class PortfolioService:
         risk_free_rate: float = 0.0,
         max_equity_weight: float = 1.0,
     ) -> dict[str, float]:
-        """Compute optimal long-only weights (maximise Sharpe ratio).
-
-        Solves the tangency portfolio ``w = inv(S) * (mu - rf)`` normalised so
-        weights sum to 1, then enforces long-only by iterative clipping and
-        renormalisation. If the covariance matrix is (near-)singular a ridge is
-        added; if the tangency solution is still infeasible, falls back to
-        minimum-variance, then to equal-weight.
-
-        The computed weights are *pre-risk*: the caller (Portfolio Manager)
-        applies ``max_equity_weight`` to scale risky exposure and allocate the
-        remainder to the risk-free bucket.
+        """Constrained long-only maximum-Sharpe weights.
 
         Args:
             returns: Daily simple returns frame (rows=dates, cols=tickers).
-            risk_free_rate: Annualised risk-free rate (e.g. 0.15 for 15%).
+            risk_free_rate: Annualised risk-free rate (e.g. 0.40 for 40 %).
             max_equity_weight: Ceiling on total risky allocation in [0,1].
 
         Returns:
-            Mapping ticker -> target weight (all non-negative, summing to 1).
+            Mapping ticker -> weight (non-negative; sums to the ceiling).
 
         Raises:
-            PortfolioError: If returns are empty or the optimisation degenerates
-                to an unusable state.
+            PortfolioError: If returns are empty or degenerate.
         """
         frame = returns.dropna(how="all")
         self._validate(frame)
@@ -117,17 +115,71 @@ class PortfolioService:
 
         mu = self.expected_returns(frame).to_numpy(dtype=float)
         sigma = self.covariance_matrix(frame).to_numpy(dtype=float)
-        rf = float(risk_free_rate)
+        sigma = sigma + np.eye(len(mu)) * _RIDGE
 
-        weights = self._solve_tangency(sigma, mu, rf)
-        weights = self._long_only(weights)
+        if len(mu) == 1:
+            weights = np.array([1.0])
+        elif np.all(mu <= risk_free_rate):
+            logger.info("tangency_undefined_min_variance", rf=risk_free_rate)
+            weights = self.min_variance(sigma)
+        else:
+            weights = self._max_sharpe(mu, sigma, float(risk_free_rate))
+
         weights = self._apply_equity_cap(weights, max_equity_weight)
-
         result = {ticker: float(w) for ticker, w in zip(frame.columns, weights, strict=True)}
-        self._log_result(result)
+        self._log_result(result, risk_free_rate)
         return result
 
+    # -- solvers -------------------------------------------------------------
+
+    @staticmethod
+    def min_variance(sigma: np.ndarray) -> np.ndarray:
+        """Long-only global minimum-variance weights (SLSQP)."""
+        n = sigma.shape[0]
+        x0 = np.full(n, 1.0 / n)
+        res = minimize(
+            lambda w: float(w @ sigma @ w),
+            x0,
+            jac=lambda w: 2.0 * sigma @ w,
+            bounds=[(0.0, 1.0)] * n,
+            constraints=[{"type": "eq", "fun": lambda w: float(np.sum(w) - 1.0)}],
+            method="SLSQP",
+            options={"maxiter": 500, "ftol": 1e-12},
+        )
+        return PortfolioService._clean(res.x if res.success else x0)
+
+    @staticmethod
+    def _max_sharpe(mu: np.ndarray, sigma: np.ndarray, rf: float) -> np.ndarray:
+        n = len(mu)
+        x0 = np.full(n, 1.0 / n)
+        excess = mu - rf
+
+        def neg_sharpe(w: np.ndarray) -> float:
+            vol = float(np.sqrt(max(w @ sigma @ w, 1e-18)))
+            return -float(w @ excess) / vol
+
+        res = minimize(
+            neg_sharpe,
+            x0,
+            bounds=[(0.0, 1.0)] * n,
+            constraints=[{"type": "eq", "fun": lambda w: float(np.sum(w) - 1.0)}],
+            method="SLSQP",
+            options={"maxiter": 500, "ftol": 1e-12},
+        )
+        if not res.success or not np.all(np.isfinite(res.x)):
+            logger.warning("max_sharpe_failed_min_variance", message=str(res.message))
+            return PortfolioService.min_variance(sigma)
+        return PortfolioService._clean(res.x)
+
     # -- internal helpers ----------------------------------------------------
+
+    @staticmethod
+    def _clean(weights: np.ndarray) -> np.ndarray:
+        w = np.where(weights < 1e-6, 0.0, weights)
+        total = float(np.sum(w))
+        if total <= 1e-12:
+            return np.full(len(weights), 1.0 / len(weights))
+        return w / total
 
     @staticmethod
     def _validate(returns: pd.DataFrame) -> None:
@@ -137,62 +189,9 @@ class PortfolioService:
         if returns.shape[1] == 0:
             raise PortfolioError("Getiri verisinde varlık sütunu yok.")
 
-    def _solve_tangency(self, sigma: np.ndarray, mu: np.ndarray, rf: float) -> np.ndarray:
-        """Closed-form tangency weights: w ~ S^-1 (mu - rf), normalised."""
-        n = len(mu)
-        excess = mu - rf
-        try:
-            inv = self._invert(sigma)
-            w = inv @ excess
-        except np.linalg.LinAlgError:
-            inv = self._invert(sigma + np.eye(n) * _RIDGE)
-            w = inv @ excess
-        norm = float(np.sum(w))
-        if not np.isfinite(norm) or abs(norm) < 1e-12:
-            logger.warning("tangency_degenerate_fallback_min_variance")
-            return self._solve_min_variance(sigma)
-        return w / norm
-
-    def _solve_min_variance(self, sigma: np.ndarray) -> np.ndarray:
-        """Minimum-variance portfolio weights (global MVP)."""
-        n = sigma.shape[0]
-        ones = np.ones(n)
-        try:
-            inv = self._invert(sigma)
-        except np.linalg.LinAlgError:
-            inv = self._invert(sigma + np.eye(n) * _RIDGE)
-        num = inv @ ones
-        return num / float(np.sum(num))
-
-    @staticmethod
-    def _invert(matrix: np.ndarray) -> np.ndarray:
-        """Invert a square matrix with a numpy guard against near-singularity."""
-        try:
-            return np.linalg.inv(matrix)
-        except np.linalg.LinAlgError:
-            return np.linalg.pinv(matrix)
-
-    @staticmethod
-    def _long_only(weights: np.ndarray) -> np.ndarray:
-        """Enforce non-negative weights, then renormalise to sum 1.
-
-        If clipping collapses the vector to zero (all-negative inputs), fall
-        back to equal weight so the caller always gets a usable allocation.
-        """
-        clipped = np.maximum(weights, 0.0)
-        total = float(np.sum(clipped))
-        if total < 1e-12:
-            n = len(weights)
-            return np.full(n, 1.0 / n)
-        return clipped / total
-
     @staticmethod
     def _apply_equity_cap(weights: np.ndarray, max_equity: float) -> np.ndarray:
-        """Scale risky weights to respect ``max_equity`` (cash takes the rest).
-
-        ``max_equity`` in [0,1] is the ceiling on total risky exposure from the
-        risk assessment; the remainder is implicitly held as cash.
-        """
+        """Scale risky weights to respect ``max_equity`` (cash takes the rest)."""
         total_risk = float(np.sum(weights))
         cap = max(0.0, min(float(max_equity), 1.0))
         if total_risk <= cap:
@@ -201,12 +200,13 @@ class PortfolioService:
         return weights * scale
 
     @staticmethod
-    def _log_result(result: dict[str, float]) -> None:
+    def _log_result(result: dict[str, float], rf: float) -> None:
         logger.info(
             "markowitz_weights",
             weights={k: round(v, 4) for k, v in result.items()},
-            _risk_weight_sum=round(sum(v for v in result.values()), 4),
+            risk_weight_sum=round(sum(result.values()), 4),
+            risk_free_rate=rf,
         )
 
 
-__all__ = ["PortfolioService", "PortfolioError", "TRADING_DAYS"]
+__all__ = ["PortfolioError", "PortfolioService", "TRADING_DAYS", "james_stein_means"]
