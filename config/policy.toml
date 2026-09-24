@@ -1,0 +1,258 @@
+# =============================================================================
+# Yatırım Politikası — tüm eşikler, bantlar, maliyetler ve vergi oranları burada.
+# Kodda sihirli sayı yoktur; bu dosya POLICY_FILE ile değiştirilebilir.
+# Vergi/maliyet oranları BİLGİ AMAÇLIDIR; güncel mevzuatı kontrol edin.
+# =============================================================================
+
+version = "2026.09"
+
+# --- Varlık sınıfları -----------------------------------------------------------
+[asset_classes]
+para_piyasasi = "TL Para Piyasası"
+tl_tahvil = "TL Tahvil / Bono"
+eurobond = "Eurobond"
+altin = "Altın"
+doviz = "Döviz"
+bist_endeks = "BIST Geniş Endeks"
+bist_hisse = "BIST Hisse Sepeti"
+
+# --- Risk seviyeleri (1–10) ---------------------------------------------------------
+[risk_levels]
+labels = [
+  "Çok Muhafazakâr", "Muhafazakâr", "Temkinli", "Temkinli-Dengeli", "Dengeli",
+  "Dengeli-Büyüme", "Büyüme", "Büyüme-Agresif", "Agresif", "Çok Agresif",
+]
+# Profil geçerlilik süresi (gün) ve yenileme uyarısı (gün kala)
+profile_validity_days = 365
+renewal_warning_days = 30
+
+# Seviye → izin verilen en yüksek enstrüman risk skoru (SRRI benzeri 1–7)
+[suitability.max_instrument_risk]
+"1" = 4
+"2" = 4
+"3" = 6
+"4" = 7
+"5" = 7
+"6" = 7
+"7" = 7
+"8" = 7
+"9" = 7
+"10" = 7
+
+# Kapasite ölçeği (0–100 puan → 1–10 seviye) eşikleri
+[suitability.level_thresholds]
+upper_bounds = [10, 20, 30, 40, 50, 60, 70, 80, 90, 101]
+
+# --- Model portföyler (varlık sınıfı ağırlıkları, toplam 1) ----------------------------
+[model_portfolios.1]
+para_piyasasi = 0.70
+tl_tahvil = 0.20
+eurobond = 0.05
+altin = 0.05
+[model_portfolios.2]
+para_piyasasi = 0.55
+tl_tahvil = 0.25
+eurobond = 0.08
+altin = 0.07
+doviz = 0.05
+[model_portfolios.3]
+para_piyasasi = 0.40
+tl_tahvil = 0.25
+eurobond = 0.10
+altin = 0.10
+doviz = 0.05
+bist_endeks = 0.10
+[model_portfolios.4]
+para_piyasasi = 0.30
+tl_tahvil = 0.25
+eurobond = 0.12
+altin = 0.10
+doviz = 0.05
+bist_endeks = 0.15
+bist_hisse = 0.03
+[model_portfolios.5]
+para_piyasasi = 0.22
+tl_tahvil = 0.22
+eurobond = 0.12
+altin = 0.12
+doviz = 0.05
+bist_endeks = 0.20
+bist_hisse = 0.07
+[model_portfolios.6]
+para_piyasasi = 0.15
+tl_tahvil = 0.20
+eurobond = 0.12
+altin = 0.13
+doviz = 0.05
+bist_endeks = 0.25
+bist_hisse = 0.10
+[model_portfolios.7]
+para_piyasasi = 0.10
+tl_tahvil = 0.15
+eurobond = 0.10
+altin = 0.15
+doviz = 0.05
+bist_endeks = 0.30
+bist_hisse = 0.15
+[model_portfolios.8]
+para_piyasasi = 0.06
+tl_tahvil = 0.10
+eurobond = 0.08
+altin = 0.15
+doviz = 0.06
+bist_endeks = 0.35
+bist_hisse = 0.20
+[model_portfolios.9]
+para_piyasasi = 0.04
+tl_tahvil = 0.06
+eurobond = 0.05
+altin = 0.15
+doviz = 0.05
+bist_endeks = 0.35
+bist_hisse = 0.30
+[model_portfolios.10]
+para_piyasasi = 0.02
+tl_tahvil = 0.03
+eurobond = 0.05
+altin = 0.10
+doviz = 0.05
+bist_endeks = 0.35
+bist_hisse = 0.40
+
+# --- Optimizasyon ----------------------------------------------------------------------
+[optimization]
+default_method = "hrp"
+# Model portföy etrafında varlık sınıfı bandı (±)
+class_band = 0.10
+# Tek enstrüman üst sınırı
+max_single_instrument = 0.30
+# Getiri tahmini için en az geçmiş (yıl)
+min_history_years = 3
+# Beklenen getiri shrinkage: "james_stein" | "capm"
+return_shrinkage = "james_stein"
+# min-CVaR güven düzeyi
+cvar_alpha = 0.95
+# Black-Litterman: risk kaçınma katsayısı ve tau
+bl_risk_aversion = 2.5
+bl_tau = 0.05
+# Risksiz faiz yoksa kullanılacak son çare (yıllık)
+fallback_risk_free_rate = 0.35
+
+# --- Yeniden dengeleme ---------------------------------------------------------------------
+[rebalance]
+default_band = 0.03
+calendar = "monthly"          # monthly | quarterly
+min_trade_amount = 250.0      # TL
+proposal_ttl_hours = 24
+# Onay anında fiyat bu orandan fazla değiştiyse öneri süresi dolar
+price_tolerance = 0.03
+lot_method = "HIFO"           # FIFO | HIFO
+
+[rebalance.bands]
+para_piyasasi = 0.03
+tl_tahvil = 0.03
+eurobond = 0.04
+altin = 0.05
+doviz = 0.05
+bist_endeks = 0.06
+bist_hisse = 0.07
+
+# --- İşlem maliyetleri (bilgi amaçlı) ----------------------------------------------------------
+[costs]
+bsmv_rate = 0.05              # komisyon üzerinden BSMV
+min_fee = 1.0                 # TL, komisyon alınan işlemlerde asgari ücret
+slippage_bps = 5
+
+[costs.commission_bps]
+para_piyasasi = 0
+tl_tahvil = 0
+eurobond = 10
+altin = 0
+doviz = 0
+bist_endeks = 10
+bist_hisse = 15
+
+[costs.spread_bps]
+para_piyasasi = 0
+tl_tahvil = 5
+eurobond = 20
+altin = 40
+doviz = 25
+bist_endeks = 5
+bist_hisse = 10
+
+# --- Stopaj tablosu (BİLGİ AMAÇLI — güncel mevzuatı kontrol edin) ---------------------------------
+# short: elde tutma < long_after_days, long: ≥ long_after_days
+[tax]
+long_after_days = 365
+
+[tax.withholding.para_piyasasi]
+short = 0.175
+long = 0.175
+[tax.withholding.tl_tahvil]
+short = 0.175
+long = 0.175
+[tax.withholding.eurobond]
+short = 0.0
+long = 0.0
+[tax.withholding.altin]
+short = 0.175
+long = 0.175
+[tax.withholding.doviz]
+short = 0.0
+long = 0.0
+[tax.withholding.bist_endeks]
+short = 0.0
+long = 0.0
+[tax.withholding.bist_hisse]
+short = 0.0
+long = 0.0
+
+# --- Hedef planlama -----------------------------------------------------------------------------
+[planning]
+n_paths = 10000
+block_months = 6
+seed = 42
+max_horizon_years = 50
+# Beklenen reel getiri varsayımı yoksa kullanılan uzun dönem TÜFE (yıllık)
+default_inflation = 0.25
+success_threshold = 0.80
+
+# --- Nakit Autopilot ---------------------------------------------------------------------------------
+[autopilot]
+default_threshold = 5000.0
+target_symbol = "TL_PPF"
+min_sweep_amount = 500.0
+
+# --- Dürtmeler (davranışsal) -------------------------------------------------------------------------
+[nudges]
+market_drop_trigger = -0.05
+idle_cash_ratio = 0.15
+goal_gap_probability = 0.60
+cooling_off_hours = 24
+
+# --- Rejim ---------------------------------------------------------------------------------------------
+[regime]
+n_states = 3
+max_tilt = 0.05
+lookback_months = 120
+
+# --- Stres senaryoları: faktör şokları -------------------------------------------------------------------
+[stress.factor_shocks.usdtry_up_30]
+label = "USDTRY +%30"
+usdtry = 0.30
+[stress.factor_shocks.rate_up_500bp]
+label = "Politika faizi +500bp"
+rate = 0.05
+[stress.factor_shocks.bist_down_25]
+label = "BIST −%25"
+bist = -0.25
+[stress.factor_shocks.gold_up_15]
+label = "Altın +%15"
+gold = 0.15
+
+[stress.historical]
+kur_soku_2018 = { label = "Ağustos 2018 kur şoku", start = "2018-07-27", end = "2018-09-03" }
+covid_2020 = { label = "Mart 2020 COVID", start = "2020-02-19", end = "2020-03-23" }
+kur_soku_2021 = { label = "Aralık 2021 kur şoku", start = "2021-11-01", end = "2021-12-20" }
+calkanti_2025 = { label = "Mart 2025 piyasa çalkantısı", start = "2025-03-18", end = "2025-04-07" }
