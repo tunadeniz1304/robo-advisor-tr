@@ -1,0 +1,2 @@
+# Opsiyonel hızlandırıcılar — kurulu değilse uygulama kendi implementasyonuna düşer.
+hmmlearn>=0.3.0      # rejim tespiti (GaussianHMM); yoksa volatilite eşiği

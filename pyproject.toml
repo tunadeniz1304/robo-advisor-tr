@@ -40,7 +40,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q -p no:cacheprovider"
+addopts = "-p no:cacheprovider -p no:logging"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 python_files = ["test_*.py"]
@@ -50,6 +50,7 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
+concurrency = ["greenlet", "thread"]
 source = ["agents", "core", "llm", "models", "routers", "schemas", "services"]
 omit = ["tests/*", "alembic/*", "scripts/*"]
 
