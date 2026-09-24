@@ -48,7 +48,7 @@ def to_usd(prices: pd.DataFrame, usdtry: pd.Series) -> pd.DataFrame:
 
 def deflate(returns_monthly: pd.DataFrame, cpi: pd.Series) -> pd.DataFrame:
     """Real monthly returns: ``(1 + r) / (1 + π) − 1`` with monthly CPI inflation."""
-    infl = cpi.sort_index().pct_change().reindex(returns_monthly.index).fillna(0.0)
+    infl = cpi.dropna().sort_index().pct_change().reindex(returns_monthly.index).fillna(0.0)
     return (1.0 + returns_monthly).div(1.0 + infl, axis=0) - 1.0
 
 
@@ -170,6 +170,55 @@ class MarketDataService(MarketService):
         return float(cpi.iloc[-1] / cpi.iloc[-13] - 1.0)
 
     # -- status / persistence ------------------------------------------------------
+
+    def snapshot_meta(self) -> dict[str, Any]:
+        """Provenance metadata of the offline snapshot (per series)."""
+        try:
+            return dict(self._snapshot.meta()) if hasattr(self._snapshot, "meta") else {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    async def quality_report(self) -> dict[str, Any]:
+        """Data-quality report of the instrument panel currently served."""
+        from services.market_data.quality import assess_panel
+        from services.market_data.universe import UNIVERSE
+
+        panel = await self.history([s.symbol for s in UNIVERSE])
+        return assess_panel(
+            panel, as_of=pd.Timestamp.today().normalize(), meta=self.snapshot_meta()
+        )
+
+    def data_mode(self) -> dict[str, Any]:
+        """Badge semantics: ``gercek`` (live) / ``snapshot`` / ``yaklasik``.
+
+        ``yaklasik`` when a macro series is the manual approximation or an
+        instrument is entirely a proxy; spliced proxy periods are listed.
+        """
+        meta = self.snapshot_meta()
+        series = meta.get("series", {})
+        macro = meta.get("macro", {})
+        proxies = sorted(k for k, v in series.items() if v.get("is_proxy"))
+        approx_macro = sorted(k for k, v in macro.items() if v.get("is_proxy"))
+        if not macro and meta.get("macro_source") == "manual_approx":
+            approx_macro = ["TUFE", "POLICY_RATE"]
+        source = getattr(self._source, "last_source", getattr(self._source, "name", "custom"))
+        if proxies or approx_macro:
+            mode = "yaklasik"
+        elif source in {"live", "mixed"}:
+            mode = "gercek"
+        else:
+            mode = "snapshot"
+        return {
+            "mode": mode,
+            "source": source,
+            "snapshot_end": meta.get("end"),
+            "proxy_series": proxies,
+            "approximate_macro": approx_macro,
+            "spliced_series": {
+                k: v["proxy_until"] for k, v in series.items() if v.get("proxy_until")
+            },
+            "macro_sources": {k: v.get("source") for k, v in macro.items()},
+        }
 
     def data_status(self) -> dict[str, Any]:
         """Badge info: ``source`` is ``live`` / ``snapshot`` / ``mixed``."""

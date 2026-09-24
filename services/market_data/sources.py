@@ -25,7 +25,8 @@ from services.market_data.universe import BY_SYMBOL, UNDERLYING_YAHOO
 logger = get_logger("otonom.market.sources")
 
 SNAPSHOT_DIR = BASE_DIR / "data" / "snapshots"
-PRICES_FILE = "prices.csv.gz"
+PRICES_FILE = "prices.parquet"
+LEGACY_PRICES_FILE = "prices.csv.gz"
 MACRO_FILE = "macro.csv"
 MACRO_MANUAL_FILE = "macro_manual.csv"
 META_FILE = "meta.json"
@@ -68,9 +69,14 @@ class SnapshotSource:
         """Full instrument close panel (cached in memory)."""
         if self._panel is None:
             path = self._dir / PRICES_FILE
-            if not path.is_file():
+            legacy = self._dir / LEGACY_PRICES_FILE
+            if path.is_file():
+                frame = pd.read_parquet(path)
+                frame.index = pd.DatetimeIndex(frame.index, name="date")
+            elif legacy.is_file():
+                frame = pd.read_csv(legacy, parse_dates=["date"], index_col="date")
+            else:
                 raise RuntimeError(f"Snapshot bulunamadı: {path}")
-            frame = pd.read_csv(path, parse_dates=["date"], index_col="date")
             self._panel = frame.sort_index()
         return self._panel
 
