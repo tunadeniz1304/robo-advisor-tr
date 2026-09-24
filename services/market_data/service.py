@@ -106,6 +106,7 @@ class MarketDataService(MarketService):
             currency: ``TRY`` or ``USD`` (converted with USDTRY).
             real: Deflate by TÜFE (monthly frequency only).
         """
+        symbols = list(dict.fromkeys(symbols))  # yinelenen semboller tek sütun olmalı
         wanted = list(dict.fromkeys(symbols + (["USDTRY"] if currency == "USD" else [])))
         prices = await self.history(wanted)
         if currency == "USD" and "USDTRY" in prices.columns:

@@ -172,3 +172,13 @@ def test_scheduler_extra_jobs(client: TestClient) -> None:
     )
     assert client.portal.call(autopilot_job, container) == 1
     assert client.portal.call(nudges_job, container) >= 1
+
+
+async def test_panic_cost_for_equity_levels_duplicate_symbols(market: MarketDataService) -> None:
+    """Regression: level 6 model uses XU100.IS as representative *and* benchmark."""
+    from services.behavior import panic_sell_cost
+
+    rets = await market.returns(["XU100.IS", "XU100.IS"], freq="M")
+    assert list(rets.columns) == ["XU100.IS"]
+    cost = await panic_sell_cost(market, 6)
+    assert cost["episodes"] >= 1

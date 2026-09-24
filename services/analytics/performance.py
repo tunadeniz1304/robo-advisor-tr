@@ -114,7 +114,9 @@ def time_weighted_return(
         flows.reindex(v.index).fillna(0.0) if flows is not None else pd.Series(0.0, index=v.index)
     ).astype(float)
     prev = v.shift(1)
-    daily = ((v - f) / prev - 1.0).iloc[1:]
+    # Portföy henüz fonlanmamışken (≈0 değer) getiri tanımsızdır; bu günler 0 sayılır.
+    floor = max(1.0, float(v.abs().max()) * 1e-6)
+    daily = ((v - f) / prev.where(prev > floor) - 1.0).iloc[1:]
     daily = daily.replace([np.inf, -np.inf], np.nan).fillna(0.0)
     return float((1.0 + daily).prod() - 1.0), daily
 

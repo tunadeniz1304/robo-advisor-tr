@@ -98,3 +98,12 @@ def test_metrics_and_health(client: TestClient) -> None:
     ready = client.get("/health/ready").json()
     assert ready["status"] == "ok" and ready["checks"]["database"] == "ok"
     assert client.get("/health/live").json()["status"] == "ok"
+
+
+def test_twr_ignores_unfunded_period() -> None:
+    """Regression: a near-zero pre-funding value must not explode the TWR."""
+    idx = pd.bdate_range("2024-01-01", periods=4)
+    values = pd.Series([0.0, 1e-7, 100_000.0, 110_000.0], index=idx)
+    flows = pd.Series([0.0, 0.0, 100_000.0, 0.0], index=idx)
+    twr, _ = time_weighted_return(values, flows)
+    assert twr == pytest.approx(0.10)
