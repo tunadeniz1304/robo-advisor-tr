@@ -65,9 +65,10 @@ def test_protected_endpoints_require_auth(anon_client: TestClient) -> None:
         resp = anon_client.get(path)
         assert resp.status_code == 401, path
         assert "correlation_id" in resp.json()
-    # Açık uçlar
+    # Açık uç: yalnız sağlık. v2: /llm/status kimlik ister, /metrics varsayılan kapalı.
     assert anon_client.get("/health").status_code == 200
-    assert anon_client.get("/api/v1/llm/status").status_code == 200
+    assert anon_client.get("/api/v1/llm/status").status_code == 401
+    assert anon_client.get("/metrics").status_code == 404
 
 
 def test_login_failure_and_me(anon_client: TestClient) -> None:
@@ -106,8 +107,9 @@ def test_customer_sees_only_own_data(client: TestClient) -> None:
 
     listed = client.get("/api/v1/customers", headers=h).json()
     assert [c["id"] for c in listed] == [own_cid]
-    assert client.get(f"/api/v1/customers/{other['id']}", headers=h).status_code == 403
-    assert client.get(f"/api/v1/portfolios/{other_pf['id']}", headers=h).status_code == 403
+    # v2: başkasının kaydı var olmayanla aynı yanıtı alır (404).
+    assert client.get(f"/api/v1/customers/{other['id']}", headers=h).status_code == 404
+    assert client.get(f"/api/v1/portfolios/{other_pf['id']}", headers=h).status_code == 404
     # Başkasının portföyünde işlem / rebalance tetikleyemez
     tx = client.post(
         "/api/v1/transactions",
@@ -120,13 +122,13 @@ def test_customer_sees_only_own_data(client: TestClient) -> None:
             "price": 10,
         },
     )
-    assert tx.status_code == 403
+    assert tx.status_code == 404
     rb = client.post(
         f"/api/v1/advisor/rebalance/{other_pf['id']}",
         params={"customer_id": other["id"]},
         headers=h,
     )
-    assert rb.status_code == 403
+    assert rb.status_code == 422  # bu uçta bilinmeyen portföy 422; yabancı olan da aynı yanıtı alır
     # Müşteri silemez, nakit düzeltemez
     assert client.delete(f"/api/v1/customers/{own_cid}", headers=h).status_code == 403
     own_pf = client.get("/api/v1/portfolios", headers=h).json()[0]
@@ -163,7 +165,7 @@ def test_advisor_sees_only_assigned_customers(client: TestClient) -> None:
     ).json()
     ids = [c["id"] for c in client.get("/api/v1/customers", headers=h).json()]
     assert ids == [mine["id"]]
-    assert client.get(f"/api/v1/customers/{unassigned['id']}", headers=h).status_code == 403
+    assert client.get(f"/api/v1/customers/{unassigned['id']}", headers=h).status_code == 404
 
 
 def test_security_headers_and_request_id(client: TestClient) -> None:
@@ -203,7 +205,7 @@ def test_global_rate_limit(tmp_path: Path) -> None:
     settings = make_settings(tmp_path, rate_limit_default="2/minute")
     app = create_app(settings, market_source=FakeMarketSource())
     with TestClient(app) as c:
-        codes = [c.get("/api/v1/llm/status").status_code for _ in range(4)]
+        codes = [c.get("/api/v1/health").status_code for _ in range(4)]
     assert codes == [200, 200, 429, 429]
 
 

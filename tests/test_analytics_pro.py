@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 
 import numpy as np
@@ -87,6 +88,11 @@ def test_report_and_backtest_api(client: TestClient) -> None:
 
 def test_metrics_and_health(client: TestClient) -> None:
     client.get("/api/v1/customers")
+    # v2: /metrics varsayılan olarak kapalı; bu test açık yapılandırmayı taklit eder.
+    client.app.state.settings = dataclasses.replace(  # type: ignore[attr-defined]
+        client.app.state.settings,  # type: ignore[attr-defined]
+        metrics_public=True,
+    )
     metrics = client.get("/metrics").text
     for name in (
         "advisor_http_requests_total",

@@ -26,7 +26,7 @@ from llm.guard import check_numbers
 from llm.prompts import build_messages
 from llm.redaction import redact
 from llm.schemas import RebalanceRationale
-from tests.conftest import FakeMarketSource, make_settings
+from tests.conftest import FakeMarketSource, auth_headers, login, make_settings
 
 BASE = "https://llm.test/v1"
 FAKE_KEY = "test-key-0123456789abcdef"
@@ -411,6 +411,7 @@ def test_prompt_injection_is_contained() -> None:
 def test_llm_status_endpoint_demo(settings: Settings) -> None:
     app = create_app(settings=settings, market_source=FakeMarketSource())
     with TestClient(app) as c:
+        c.headers.update(auth_headers(login(c)))
         body = c.get("/api/v1/llm/status").json()
     assert body["mode"] == "demo" and body["key_present"] is False
     assert set(body) >= {
@@ -428,6 +429,7 @@ def test_llm_status_live_has_no_key(tmp_path: Path) -> None:
     settings = make_settings(tmp_path, llm_mode="auto", llm_api_key=FAKE_KEY, llm_base_url=BASE)
     app = create_app(settings=settings, market_source=FakeMarketSource())
     with TestClient(app) as c:
+        c.headers.update(auth_headers(login(c)))
         resp = c.get("/api/v1/llm/status")
     assert resp.json()["mode"] == "live" and resp.json()["base_url_host"] == "llm.test"
     assert FAKE_KEY not in resp.text

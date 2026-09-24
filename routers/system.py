@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
@@ -79,8 +80,25 @@ async def system_status(request: Request, user: UserDep) -> dict[str, Any]:
     }
 
 
+def _metrics_allowed(request: Request) -> bool:
+    settings = request.app.state.settings
+    if settings.metrics_public:
+        return True
+    token = settings.metrics_token
+    header = request.headers.get("authorization", "")
+    if not token or not header.lower().startswith("bearer "):
+        return False
+    return hmac.compare_digest(header[7:].strip().encode(), token.encode())
+
+
 @router.get("/metrics", include_in_schema=False)
-async def metrics() -> Response:
-    """Prometheus exposition endpoint."""
+async def metrics(request: Request) -> Response:
+    """Prometheus exposition endpoint.
+
+    Private by default: served only with ``METRICS_PUBLIC=true`` or the
+    ``METRICS_TOKEN`` bearer token; otherwise it does not exist (404).
+    """
+    if not _metrics_allowed(request):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     payload, content_type = render_metrics()
     return Response(content=payload, media_type=content_type)
