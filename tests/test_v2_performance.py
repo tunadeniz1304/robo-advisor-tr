@@ -16,6 +16,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -152,7 +153,8 @@ def test_performance_and_report_endpoints_agree(client: TestClient) -> None:
     assert rep["tear_sheet"]["risk_free_rate"] == pytest.approx(rf)
     assert perf["sharpe"] == pytest.approx(rep["tear_sheet"]["sharpe"])
     assert perf["twr_cumulative"] == pytest.approx(rep["twr_cumulative"])
-    assert perf["twr_annualized"] == pytest.approx(rep["twr_annualized"])
+    assert perf["twr_annualized"] == rep["twr_annualized"]  # aynı motor → birebir aynı
+    assert perf["period"] == rep["period"]
 
 
 def test_report_labels_cumulative_and_annualized_metrics(client: TestClient) -> None:
@@ -163,3 +165,95 @@ def test_report_labels_cumulative_and_annualized_metrics(client: TestClient) -> 
         assert key in rep, key
     assert {"start", "end", "days", "years"} <= set(rep["period"])
     assert "twr" not in rep and "mwr" not in rep  # belirsiz eski adlar kalktı
+
+
+def test_cash_flow_api_updates_cash_and_classifies(client: TestClient) -> None:
+    cid = create_customer(client, email="akis@example.com")["id"]
+    pid = create_portfolio(client, cid, cash=1_000.0, holdings={"THYAO.IS": 100.0})["id"]
+    div = client.post(
+        f"/api/v1/portfolios/{pid}/cash-flows",
+        json={"kind": "DIVIDEND", "amount": 110.0, "occurred_at": "2026-08-07T10:00:00"},
+    )
+    assert div.status_code == 201, div.text
+    assert div.json()["cash_after"] == pytest.approx(1_110.0)
+    assert div.json()["external"] is False
+    too_much = client.post(
+        f"/api/v1/portfolios/{pid}/cash-flows", json={"kind": "FEE", "amount": 1e9}
+    )
+    assert too_much.status_code == 409
+    bad = client.post(f"/api/v1/portfolios/{pid}/cash-flows", json={"kind": "GIFT", "amount": 1})
+    assert bad.status_code == 422
+    values, flows = _history(client, pid)
+    from services.analytics.performance import time_weighted_return
+
+    twr, _ = time_weighted_return(values, flows)
+    assert twr == pytest.approx(0.01, abs=1e-9)
+    listed = client.get(f"/api/v1/portfolios/{pid}/cash-flows").json()
+    assert [f["kind"] for f in listed] == ["DIVIDEND"]
+
+
+def test_cash_correction_is_recorded_as_external_flow(client: TestClient) -> None:
+    cid = create_customer(client, email="duzeltme@example.com")["id"]
+    pid = create_portfolio(client, cid, cash=1_000.0, holdings={"THYAO.IS": 100.0})["id"]
+    assert client.put(f"/api/v1/portfolios/{pid}", json={"cash": 6_000.0}).status_code == 200
+    listed = client.get(f"/api/v1/portfolios/{pid}/cash-flows").json()
+    assert listed[-1]["kind"] == "DEPOSIT" and listed[-1]["amount"] == pytest.approx(5_000.0)
+    assert listed[-1]["external"] is True
+
+
+def test_unknown_flow_kind_is_rejected() -> None:
+    from datetime import date
+
+    from services.analytics.engine import FlowEvent
+
+    with pytest.raises(ValueError):
+        _ = FlowEvent(date(2026, 1, 1), "GIFT", 1.0).cash_delta
+
+
+def test_valuation_day_rolls_forward_and_clamps() -> None:
+    from datetime import date
+
+    from services.analytics.engine import valuation_day
+
+    assert valuation_day(date(2026, 8, 1), DAYS) is None  # pencereden önce
+    assert valuation_day(date(2026, 8, 8), DAYS) == pd.Timestamp("2026-08-10")  # Cmt → Pzt
+    assert valuation_day(date(2026, 8, 12), DAYS) == pd.Timestamp("2026-08-12")
+    assert valuation_day(date(2026, 9, 1), DAYS) == DAYS[-1]  # son günden sonra
+
+
+def test_weekend_trade_is_replayed() -> None:
+    from datetime import date
+
+    from services.analytics.engine import TradeEvent, reconstruct
+
+    prices = pd.DataFrame({"A": [10.0] * 5 + [12.0] * 5}, index=DAYS)
+    # Cumartesi 8 Ağu 100 adet A alındı (1.000 + 5 maliyet); bugün 100 A + 0 nakit.
+    buy = TradeEvent(date(2026, 8, 8), "A", "BUY", 100.0, 1_000.0, 5.0)
+    values, flows = reconstruct(prices, {"A": 100.0}, 0.0, [buy], [])
+    assert float(values.iloc[0]) == pytest.approx(1_005.0)  # alımdan önce yalnız nakit
+    assert float(values.loc["2026-08-10"]) == pytest.approx(1_200.0)
+    assert float(flows.abs().sum()) == 0.0
+
+
+def test_summary_does_not_annualize_short_periods() -> None:
+    from services.analytics.engine import summarize
+
+    values = pd.Series(100.0 * 1.001 ** np.arange(len(DAYS)), index=DAYS)
+    out = summarize(values, pd.Series(0.0, index=DAYS), risk_free_rate=0.40)
+    assert out["twr_annualized"] is None and out["mwr_annualized"] is None
+    assert out["period"]["annualized"] is False
+    assert out["twr_cumulative"] == pytest.approx(1.001 ** (len(DAYS) - 1) - 1)
+    assert out["tear_sheet"]["cagr"] is None
+    assert out["tear_sheet"]["risk_free_rate"] == 0.40
+
+
+def test_summary_annualizes_multi_year_consistently() -> None:
+    from services.analytics.engine import summarize
+
+    idx = pd.bdate_range("2022-01-03", "2024-12-31")
+    values = pd.Series(100.0 * 1.0004 ** np.arange(len(idx)), index=idx)
+    out = summarize(values, pd.Series(0.0, index=idx), risk_free_rate=0.30)
+    years = out["period"]["years"]
+    assert out["twr_annualized"] == pytest.approx((1 + out["twr_cumulative"]) ** (1 / years) - 1)
+    assert out["tear_sheet"]["cagr"] == pytest.approx(out["twr_annualized"])
+    assert out["mwr_annualized"] == pytest.approx(out["twr_annualized"], abs=1e-3)  # akış yok
