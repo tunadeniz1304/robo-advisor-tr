@@ -7,6 +7,12 @@ series):
   drawdown, historical and parametric VaR/CVaR (95 %), best/worst month,
   hit rate and optional benchmark comparison (beta, tracking error,
   information ratio, excess CAGR).
+
+  Sharpe and Sortino use the ex-post definition on periodic returns:
+  ``(mean(r) − r_f,p) · N / σ_ann`` with the *same* annual risk-free rate the
+  caller passes (the real TL policy rate in the app); they are therefore
+  defined for any period length. CAGR is not reported for periods shorter
+  than one year when the caller supplies the period length in ``years``.
 * :func:`time_weighted_return` — chain-linked daily returns net of
   external cash flows.
 * :func:`xirr` — money-weighted return (annualised IRR of dated flows).
@@ -44,14 +50,31 @@ def tear_sheet(
     risk_free_rate: float = 0.0,
     benchmark: pd.Series | None = None,
     periods_per_year: int = TRADING_DAYS,
+    years: float | None = None,
 ) -> dict[str, Any]:
-    """Tear sheet metrics of a periodic simple return series."""
+    """Tear sheet metrics of a periodic simple return series.
+
+    Args:
+        returns: Periodic simple returns.
+        risk_free_rate: Annual risk-free rate (Sharpe/Sortino).
+        benchmark: Optional benchmark returns on the same index.
+        periods_per_year: Periods per year (252 daily, 12 monthly).
+        years: Calendar length of the period. When given, CAGR uses it and is
+            ``None`` below one year; otherwise ``len(returns)/periods_per_year``.
+    """
     r = returns.replace([np.inf, -np.inf], np.nan).dropna()
     if r.shape[0] < 2:
-        return {"observations": int(r.shape[0])}
-    cagr = _cagr(r, periods_per_year)
+        return {"observations": int(r.shape[0]), "risk_free_rate": risk_free_rate}
+    growth = float((1.0 + r).prod())
+    if years is None:
+        cagr: float | None = _cagr(r, periods_per_year)
+    elif years >= 1.0 and growth > 0:
+        cagr = growth ** (1.0 / years) - 1.0
+    else:
+        cagr = None
     vol = float(r.std(ddof=1)) * math.sqrt(periods_per_year)
     rf_p = (1.0 + risk_free_rate) ** (1.0 / periods_per_year) - 1.0
+    excess_ann = (float(r.mean()) - rf_p) * periods_per_year
     downside = r[r < rf_p] - rf_p
     dvol = float(np.sqrt((downside**2).sum() / len(r))) * math.sqrt(periods_per_year)
     mdd, _ = max_drawdown(r)
@@ -67,12 +90,12 @@ def tear_sheet(
         "observations": int(r.shape[0]),
         "start": str(r.index[0].date()) if isinstance(r.index, pd.DatetimeIndex) else None,
         "end": str(r.index[-1].date()) if isinstance(r.index, pd.DatetimeIndex) else None,
-        "total_return": float((1.0 + r).prod() - 1.0),
+        "total_return": growth - 1.0,
         "cagr": cagr,
         "volatility": vol,
-        "sharpe": (cagr - risk_free_rate) / vol if vol > 1e-12 else 0.0,
-        "sortino": (cagr - risk_free_rate) / dvol if dvol > 1e-12 else 0.0,
-        "calmar": cagr / abs(mdd) if mdd < -1e-12 else 0.0,
+        "sharpe": excess_ann / vol if vol > 1e-12 else 0.0,
+        "sortino": excess_ann / dvol if dvol > 1e-12 else 0.0,
+        "calmar": cagr / abs(mdd) if cagr is not None and mdd < -1e-12 else None,
         "max_drawdown": mdd,
         "var_95_hist": -q,
         "cvar_95_hist": -float(tail.mean()) if tail.size else -q,
@@ -89,15 +112,23 @@ def tear_sheet(
         var_b = float(b.var(ddof=1))
         active = r - b
         te = float(active.std(ddof=1)) * math.sqrt(periods_per_year)
-        b_cagr = _cagr(b, periods_per_year)
+        b_growth = float((1.0 + b).prod())
+        if years is None:
+            b_cagr: float | None = _cagr(b, periods_per_year)
+        elif years >= 1.0 and b_growth > 0:
+            b_cagr = b_growth ** (1.0 / years) - 1.0
+        else:
+            b_cagr = None
+        active_ann = float(active.mean()) * periods_per_year
         out["benchmark"] = {
             "cagr": b_cagr,
+            "total_return": b_growth - 1.0,
             "volatility": float(b.std(ddof=1)) * math.sqrt(periods_per_year),
             "max_drawdown": max_drawdown(b)[0],
             "beta": cov / var_b if var_b > 1e-18 else 0.0,
             "tracking_error": te,
-            "information_ratio": (cagr - b_cagr) / te if te > 1e-12 else 0.0,
-            "excess_cagr": cagr - b_cagr,
+            "information_ratio": active_ann / te if te > 1e-12 else 0.0,
+            "excess_cagr": cagr - b_cagr if cagr is not None and b_cagr is not None else None,
         }
     return out
 
