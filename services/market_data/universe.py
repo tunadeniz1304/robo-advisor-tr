@@ -1,14 +1,15 @@
 """Multi-asset investment universe (BIST, TL money market & bonds, eurobond,
 gold, FX) and its metadata.
 
-Instruments come in two flavours:
+Every instrument is backed by real data (see ``docs/DATA.md``):
 
-    * **direct** — a Yahoo Finance symbol (``XU100.IS``, ``THYAO.IS``,
-      ``USDTRY=X``);
-    * **proxy** — derived series for products without a free daily history
-      (TL money-market fund, TL bond fund, eurobond fund, gram gold in TL),
-      computed by :mod:`services.market_data.derive` from underlyings and
-      macro data. ``source="proxy"`` makes this explicit in the API/UI.
+    * ``yfinance`` — BIST index/stocks and FX from Yahoo Finance;
+    * ``derived``  — gram gold in TL = ounce gold (GC=F) × USDTRY / 31.1035,
+      a unit conversion of two real market series;
+    * ``tefas``    — daily NAV of a real TEFAS fund (``tefas_code``). TEFAS
+      serves only the last five years; for class representatives the older
+      part is spliced from a documented proxy (``splice``) and the snapshot
+      metadata records the date until which the series is a proxy.
 
 Risk scores follow an SRRI-like 1–7 scale used by the suitability gate.
 """
@@ -29,6 +30,8 @@ class InstrumentSpec:
     currency: str = "TRY"
     source: str = "yfinance"
     yahoo_symbol: str | None = None
+    tefas_code: str | None = None
+    splice: str | None = None  # TEFAS öncesi dönem için vekil yöntemi (yoksa kısa seri)
     expense_ratio: float = 0.0
     liquidity_days: int = 1
     min_trade_amount: float = 0.0
@@ -56,40 +59,77 @@ def _stock(symbol: str, name: str, sector: str, esg: bool, esg_score: float) -> 
 UNIVERSE: tuple[InstrumentSpec, ...] = (
     InstrumentSpec(
         "TL_PPF",
-        "TL Para Piyasası Fonu (proxy)",
+        "İş Portföy Para Piyasası (TL) Fonu — TI1",
         "para_piyasasi",
         1,
-        source="proxy",
+        source="tefas",
+        tefas_code="TI1",
+        splice="money_market",
         expense_ratio=0.015,
-        description="TCMB politika faizinden yönetim ücreti düşülerek günlük tahakkuk.",
+        description="Gerçek TEFAS fiyatı (TI1). 5 yıldan eski kısım politika faizi tahakkukuyla "
+        "eklenmiş vekildir (meta: proxy_until).",
     ),
     InstrumentSpec(
         "TL_TAHVIL",
-        "TL Devlet Tahvili Fonu (proxy)",
+        "Ziraat Portföy Kısa Vadeli Borçlanma Araçları (TL) Fonu — TZV",
         "tl_tahvil",
         2,
-        source="proxy",
+        source="tefas",
+        tefas_code="TZV",
+        splice="bond",
         expense_ratio=0.012,
-        description="Faiz getirisi + 2 yıllık süre (duration) ile faiz değişimi etkisi.",
+        description="Gerçek TEFAS fiyatı (TZV). 5 yıldan eski kısım faiz + süre modeliyle vekildir.",
+    ),
+    InstrumentSpec(
+        "YOT",
+        "Yapı Kredi Portföy Borçlanma Araçları Fonu — YOT",
+        "tl_tahvil",
+        3,
+        source="tefas",
+        tefas_code="YOT",
+        expense_ratio=0.015,
+        description="Gerçek TEFAS fiyatı; daha uzun vadeli TL borçlanma araçları (yalnız son 5 yıl).",
     ),
     InstrumentSpec(
         "EUROBOND_TL",
-        "Eurobond Fonu (proxy, TL)",
+        "Yapı Kredi Portföy Eurobond (Dolar) Borçlanma Araçları Fonu — YBE",
         "eurobond",
         3,
-        source="proxy",
+        source="tefas",
+        tefas_code="YBE",
+        splice="eurobond",
         yahoo_symbol="EMB",
         expense_ratio=0.010,
-        description="Gelişen piyasa USD tahvil endeksi (EMB) × USDTRY.",
+        description="Gerçek TEFAS fiyatı (YBE). 5 yıldan eski kısım EMB × USDTRY vekilidir.",
+    ),
+    InstrumentSpec(
+        "IPV",
+        "İş Portföy Eurobond Borçlanma Araçları (Döviz) Fonu — IPV",
+        "eurobond",
+        3,
+        source="tefas",
+        tefas_code="IPV",
+        expense_ratio=0.012,
+        description="Gerçek TEFAS fiyatı (yalnız son 5 yıl).",
     ),
     InstrumentSpec(
         "ALTIN_TL",
         "Gram Altın (TL)",
         "altin",
         4,
-        source="proxy",
+        source="derived",
         yahoo_symbol="GC=F",
-        description="Ons altın (GC=F) × USDTRY / 31,1035.",
+        description="Ons altın (GC=F) × USDTRY / 31,1035 — iki gerçek piyasa serisinin birim dönüşümü.",
+    ),
+    InstrumentSpec(
+        "TTA",
+        "İş Portföy Altın Fonu — TTA",
+        "altin",
+        4,
+        source="tefas",
+        tefas_code="TTA",
+        expense_ratio=0.018,
+        description="Gerçek TEFAS fiyatı (yalnız son 5 yıl).",
     ),
     InstrumentSpec("USDTRY", "ABD Doları / TL", "doviz", 4, yahoo_symbol="USDTRY=X"),
     InstrumentSpec("EURTRY", "Euro / TL", "doviz", 4, yahoo_symbol="EURTRY=X"),
@@ -147,6 +187,9 @@ def asset_class_of(symbol: str) -> str:
     return "bist_hisse" if symbol.endswith(".IS") else "diger"
 
 
+TEFAS_FUNDS: dict[str, str] = {s.symbol: s.tefas_code for s in UNIVERSE if s.tefas_code}
+
+
 def symbols_in_class(asset_class: str) -> list[str]:
     return [s.symbol for s in UNIVERSE if s.asset_class == asset_class]
 
@@ -156,6 +199,7 @@ __all__ = [
     "BY_SYMBOL",
     "CLASS_REPRESENTATIVE",
     "InstrumentSpec",
+    "TEFAS_FUNDS",
     "UNDERLYING_YAHOO",
     "UNIVERSE",
     "asset_class_of",

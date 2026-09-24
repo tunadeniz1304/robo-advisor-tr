@@ -1,11 +1,18 @@
-"""Derivation of proxy instrument prices from underlyings and macro data.
+"""Derived instrument prices and the documented proxies used for splicing.
 
-* ``TL_PPF``     — money-market fund: daily accrual of the policy rate minus
-  the expense ratio, ``P_t = P_{t-1} · (1 + (r − fee))^{Δdays/365}``.
-* ``TL_TAHVIL``  — TL bond fund: carry of the policy rate plus a duration
-  effect on rate changes, ``R_t = carry − D · Δr`` (D = 2 years).
-* ``EUROBOND_TL`` — EMB (USD EM sovereign bonds) × USDTRY.
-* ``ALTIN_TL``   — gram gold in TL: ``GC=F × USDTRY / 31.1035``.
+* :func:`derive_instruments` — the live panel from Yahoo underlyings:
+  directly quoted instruments plus gram gold in TL
+  (``GC=F × USDTRY / 31.1035``, a unit conversion of two real series). Fund
+  instruments are *not* derived here: their prices are real TEFAS NAVs from
+  the snapshot (the live → snapshot chain fills them in per symbol).
+* Proxies — only used by ``scripts/fetch_real_data.py`` to extend a real
+  TEFAS series before its first available date (TEFAS serves five years):
+
+  * ``money_market`` — daily accrual of the policy rate minus the fee,
+    ``P_t = P_{t-1} · (1 + (r − fee))^{Δdays/365}``;
+  * ``bond`` — carry of the policy rate minus duration × rate change,
+    ``R_t = carry − D · Δr`` (D = 2 years);
+  * ``eurobond`` — EMB (USD EM sovereign bond ETF) × USDTRY.
 
 All functions are pure and deterministic.
 """
@@ -20,12 +27,13 @@ from services.market_data.universe import BY_SYMBOL, UNIVERSE
 TROY_OUNCE_GRAMS = 31.1035
 BOND_DURATION_YEARS = 2.0
 BASE_PRICE = 100.0
+SPLICE_METHODS = ("money_market", "bond", "eurobond")
 
 
 def policy_rate_daily(macro: pd.DataFrame, index: pd.DatetimeIndex) -> pd.Series:
-    """Forward-fill the monthly policy rate onto a daily index."""
+    """Forward-fill the (monthly or step) policy rate onto a daily index."""
     if macro is None or macro.empty or "POLICY_RATE" not in macro.columns:
-        return pd.Series(0.35, index=index)
+        raise ValueError("Politika faizi serisi yok; vekil üretilemez.")
     monthly = macro["POLICY_RATE"].dropna().sort_index()
     daily = monthly.reindex(monthly.index.union(index)).ffill().bfill()
     return daily.reindex(index)
@@ -49,39 +57,58 @@ def bond_fund_series(
     return pd.Series(BASE_PRICE * np.cumprod(1.0 + ret), index=rate.index)
 
 
-def derive_instruments(raw: pd.DataFrame, macro: pd.DataFrame | None) -> pd.DataFrame:
-    """Build the instrument price panel from Yahoo underlyings.
+def proxy_series(method: str, symbol: str, raw: pd.DataFrame, macro: pd.DataFrame) -> pd.Series:
+    """Documented proxy price series for ``symbol`` on ``raw.index``.
+
+    Args:
+        method: One of :data:`SPLICE_METHODS`.
+        symbol: Instrument symbol (for its expense ratio).
+        raw: Daily Yahoo underlyings (needs ``USDTRY=X`` and ``EMB`` for
+            ``eurobond``).
+        macro: Frame with ``POLICY_RATE`` (fraction).
+    """
+    index = pd.DatetimeIndex(raw.index)
+    fee = BY_SYMBOL[symbol].expense_ratio
+    if method == "money_market":
+        return money_market_series(policy_rate_daily(macro, index), fee)
+    if method == "bond":
+        return bond_fund_series(policy_rate_daily(macro, index), fee)
+    if method == "eurobond":
+        frame = raw.sort_index().ffill()
+        return (frame["EMB"] * frame["USDTRY=X"]).rename(symbol)
+    raise ValueError(f"Bilinmeyen vekil yöntemi: {method}")
+
+
+def derive_instruments(raw: pd.DataFrame, macro: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Live instrument panel from Yahoo underlyings (no fund proxies).
 
     Args:
         raw: Wide daily close frame keyed by Yahoo symbols.
-        macro: Monthly macro frame (``POLICY_RATE`` …), may be ``None``.
+        macro: Unused; kept for call-site compatibility.
 
     Returns:
         Wide daily close frame keyed by instrument symbols.
     """
+    del macro
     frame = raw.sort_index().ffill()
     out: dict[str, pd.Series] = {}
-    usdtry = frame.get("USDTRY=X")
     for spec in UNIVERSE:
-        if spec.source != "proxy" and spec.yahoo_symbol in frame.columns:
+        if spec.source == "yfinance" and spec.yahoo_symbol in frame.columns:
             out[spec.symbol] = frame[spec.yahoo_symbol]
-    if usdtry is not None:
-        if "GC=F" in frame.columns:
-            out["ALTIN_TL"] = frame["GC=F"] * usdtry / TROY_OUNCE_GRAMS
-        if "EMB" in frame.columns:
-            out["EUROBOND_TL"] = frame["EMB"] * usdtry
-    index = pd.DatetimeIndex(frame.index)
-    rate = policy_rate_daily(macro if macro is not None else pd.DataFrame(), index)
-    out["TL_PPF"] = money_market_series(rate, BY_SYMBOL["TL_PPF"].expense_ratio)
-    out["TL_TAHVIL"] = bond_fund_series(rate, BY_SYMBOL["TL_TAHVIL"].expense_ratio)
-    panel = pd.DataFrame(out, index=index)
+    usdtry = frame.get("USDTRY=X")
+    if usdtry is not None and "GC=F" in frame.columns:
+        out["ALTIN_TL"] = frame["GC=F"] * usdtry / TROY_OUNCE_GRAMS
+    panel = pd.DataFrame(out, index=pd.DatetimeIndex(frame.index))
     ordered = [s.symbol for s in UNIVERSE if s.symbol in panel.columns]
     return panel[ordered]
 
 
 __all__ = [
+    "SPLICE_METHODS",
+    "TROY_OUNCE_GRAMS",
     "bond_fund_series",
     "derive_instruments",
     "money_market_series",
     "policy_rate_daily",
+    "proxy_series",
 ]
