@@ -12,12 +12,12 @@ Design notes:
       startup and the resulting instance is shared through the dependency
       injection container.
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -62,8 +62,8 @@ class Settings:
     version: str = "1.0.0"
     api_v1_prefix: str = "/api/v1"
     database_url: str = "sqlite+aiosqlite:///./advisor.db"
-    openai_api_key: Optional[str] = field(default=None)
-    anthropic_api_key: Optional[str] = field(default=None)
+    openai_api_key: str | None = field(default=None)
+    anthropic_api_key: str | None = field(default=None)
     log_level: str = "INFO"
     log_json: bool = False
     request_timeout_seconds: float = 30.0
@@ -87,7 +87,7 @@ class Settings:
     # -- Factory ------------------------------------------------------------
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         """Load configuration from environment variables.
 
         The :func:`load_dotenv_file` is invoked first so that a local
@@ -98,9 +98,7 @@ class Settings:
             app_name=os.getenv("APP_NAME", "Otonom Finansal Danışman"),
             version=os.getenv("APP_VERSION", "1.0.0"),
             api_v1_prefix=os.getenv("API_V1_PREFIX", "/api/v1"),
-            database_url=os.getenv(
-                "DATABASE_URL", "sqlite+aiosqlite:///./advisor.db"
-            ),
+            database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./advisor.db"),
             openai_api_key=os.getenv("OPENAI_API_KEY") or None,
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),

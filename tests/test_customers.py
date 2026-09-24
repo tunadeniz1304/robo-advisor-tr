@@ -4,6 +4,7 @@ These tests exercise the async SQLAlchemy layer end-to-end through the
 FastAPI TestClient against a file-backed SQLite database, including the
 unique-email constraint and cascading deletes.
 """
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -56,9 +57,7 @@ def test_update_customer_partial(client: TestClient) -> None:
     """PATCH-style PUT updates only provided fields."""
     customer_id = create_customer(client)["id"]
 
-    resp = client.put(
-        f"/api/v1/customers/{customer_id}", json={"declared_risk_tolerance": 2}
-    )
+    resp = client.put(f"/api/v1/customers/{customer_id}", json={"declared_risk_tolerance": 2})
     assert resp.status_code == 200
     body = resp.json()
     assert body["declared_risk_tolerance"] == 2

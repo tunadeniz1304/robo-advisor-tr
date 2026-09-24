@@ -9,6 +9,7 @@ market source and the LLM client (dependency-injected, no network access):
 Piyasa Ajanı (FakeMarketSource) -> Risk Ajanı (real RiskService, DB profile)
 -> Portföy Yöneticisi (real Markowitz MPT + DeterministicLLM + DB UPDATE/INSERT).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -77,12 +78,19 @@ def test_advisor_rebalance_returns_weights_and_orders(advisor_client: TestClient
 
     # The ceiling equals RiskService category_bounds for this profile
     # (declared_tolerance=4, horizon=10y, income=45k -> Balanced -> 0.50).
-    ceiling = RiskService().assess(
-        Customer(
-            full_name="x", email="x@y.z", investment_horizon_years=10,
-            monthly_income=45000.0, declared_risk_tolerance=4,
+    ceiling = (
+        RiskService()
+        .assess(
+            Customer(
+                full_name="x",
+                email="x@y.z",
+                investment_horizon_years=10,
+                monthly_income=45000.0,
+                declared_risk_tolerance=4,
+            )
         )
-    ).max_equity_weight
+        .max_equity_weight
+    )
     assert abs(total - ceiling) < 1e-6
 
 
@@ -101,7 +109,7 @@ def test_advisor_rebalance_persists_transactions(advisor_client: TestClient) -> 
         "/api/v1/transactions", params={"portfolio_id": portfolio_id}
     ).json()
     assert len(listed) == len(orders)
-    for row, order in zip(listed, orders):
+    for row, order in zip(listed, orders, strict=True):
         assert row["ticker"] == order["ticker"]
         assert row["side"] == order["side"]
         assert row["reason"] == "rebalance"
@@ -125,9 +133,7 @@ def test_advisor_rebalance_updates_holdings_and_cash(advisor_client: TestClient)
 
 def test_advisor_rebalance_unknown_portfolio(advisor_client: TestClient) -> None:
     """An unknown portfolio id yields a clean 4xx, not a 500."""
-    resp = advisor_client.post(
-        "/api/v1/advisor/rebalance/9999", params={"customer_id": 1}
-    )
+    resp = advisor_client.post("/api/v1/advisor/rebalance/9999", params={"customer_id": 1})
     assert resp.status_code == 422
 
 
@@ -169,4 +175,3 @@ def test_advisor_persists_audit_run(advisor_client: TestClient) -> None:
     detail = advisor_client.get(f"/api/v1/runs/{run['id']}").json()
     assert detail["id"] == run["id"]
     assert detail["status"] == "success"
-

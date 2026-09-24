@@ -1,8 +1,9 @@
 """Pydantic v2 schemas for the Portfolio resource."""
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,10 +22,10 @@ class PortfolioUpdate(BaseModel):
     """Payload for updating portfolio metadata (holdings/cash are managed by
     the advisor rebalancing, but exposing them here keeps the CRUD complete)."""
 
-    name: Optional[str] = Field(default=None, min_length=2, max_length=160)
-    currency: Optional[str] = Field(default=None, min_length=3, max_length=8)
-    cash: Optional[float] = Field(default=None, ge=0.0)
-    holdings: Optional[dict[str, Any]] = None
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    currency: str | None = Field(default=None, min_length=3, max_length=8)
+    cash: float | None = Field(default=None, ge=0.0)
+    holdings: dict[str, Any] | None = None
 
 
 class PortfolioRead(BaseModel):

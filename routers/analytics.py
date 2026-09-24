@@ -7,6 +7,7 @@ These are read-only and cannot modify any portfolio state; they give advisors
 and customers a live view derived from real market data (yfinance) through
 :class:`services.analytics_service.AnalyticsService`.
 """
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -16,7 +17,6 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import Settings
 from core.database import get_session
 from models import Portfolio, Transaction
 from services.analytics_service import AnalyticsService, MonteCarloProjection
@@ -110,7 +110,7 @@ async def get_valuation(
     """Compute live mark-to-market valuation for a portfolio."""
     portfolio = await _get_portfolio_or_404(session, portfolio_id)
 
-    settings: Settings = request.app.state.settings
+    del request
     market = MarketService(YFinanceSource())
     tickers = [t for t in portfolio.holdings if portfolio.holdings.get(t, 0) > 0]
     snapshots = await market.fetch_snapshots(tickers) if tickers else {}
@@ -159,7 +159,6 @@ async def get_drift(
     )
 
 
-
 @router.get(
     "/{portfolio_id}/projection",
     summary="Monte Carlo ile hedef projeksiyon (gelecek değer senaryoları)",
@@ -192,7 +191,11 @@ async def get_projection(
     vol = 0.15
     expected = 0.06
     if tickers:
-        vols = [snapshots[t].volatility_annualized for t in tickers if t in snapshots and snapshots[t].volatility_annualized > 0]
+        vols = [
+            snapshots[t].volatility_annualized
+            for t in tickers
+            if t in snapshots and snapshots[t].volatility_annualized > 0
+        ]
         moms = [snapshots[t].momentum_1m for t in tickers if t in snapshots]
         if vols:
             vol = float(sum(vols) / len(vols))
@@ -207,6 +210,7 @@ async def get_projection(
         n_simulations=n_simulations,
     )
     return proj.run()
+
 
 @router.get(
     "/{portfolio_id}/performance",
@@ -226,7 +230,7 @@ async def get_performance(
     """
     portfolio = await _get_portfolio_or_404(session, portfolio_id)
 
-    settings: Settings = request.app.state.settings
+    del request
     market = MarketService(YFinanceSource())
     tickers = [t for t in portfolio.holdings if portfolio.holdings.get(t, 0) > 0]
     snapshots = await market.fetch_snapshots(tickers) if tickers else {}

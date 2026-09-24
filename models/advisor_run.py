@@ -15,19 +15,20 @@ It is write-only from the workflow and read-only via the API (routers/
 runs.py). It deliberately stores JSON copies rather than live references so
 the audit record is immutable even if holdings later change.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class AdvisorRun(Base):
@@ -52,7 +53,4 @@ class AdvisorRun(Base):
     created_at: Mapped[datetime] = mapped_column(index=True, default=_utcnow)
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
-        return (
-            f"<AdvisorRun id={self.id} portfolio_id={self.portfolio_id} "
-            f"status={self.status}>"
-        )
+        return f"<AdvisorRun id={self.id} portfolio_id={self.portfolio_id} status={self.status}>"

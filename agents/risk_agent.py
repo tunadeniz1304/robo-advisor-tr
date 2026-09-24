@@ -9,11 +9,10 @@ written back to the graph state for the Portfolio Manager.
 A missing customer is a fatal, explicit error (the graph cannot proceed
 without a profile), reported through ``state["error"]``.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.state import AdvisorState
 from core.database import session_factory

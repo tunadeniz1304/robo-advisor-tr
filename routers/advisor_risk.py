@@ -8,11 +8,11 @@ rationale for a customer. This is a read-only, deterministic computation
 separate from the advisory rebalance endpoint so risk can be surfaced
 before any rebalancing decision.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from models import Customer

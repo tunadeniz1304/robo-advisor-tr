@@ -15,9 +15,9 @@ Each test gets its own temp-file SQLite database (file-backed because the
 async engine opens several connections, which in-memory SQLite cannot serve
 reliably) and a fresh :class:`fastapi.testclient.TestClient`.
 """
+
 from __future__ import annotations
 
-import math
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient
 
 from core.app import create_app
 from core.config import Settings
-from services.market_service import MarketDataSource, MarketService
+from services.market_service import MarketDataSource
 
 # ---------------------------------------------------------------- doubles ---
 
@@ -78,7 +78,9 @@ class DeterministicLLM:
         )
         self.calls: list[tuple[str, str]] = []
 
-    async def complete(self, *, system: str, user: str, max_tokens: int = 800, temperature: float = 0.4) -> str:
+    async def complete(
+        self, *, system: str, user: str, max_tokens: int = 800, temperature: float = 0.4
+    ) -> str:
         self.calls.append((system, user))
         return self._text
 

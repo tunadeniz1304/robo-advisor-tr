@@ -10,19 +10,17 @@ Responsibilities:
 The service intentionally owns *no* secrets and never imports model classes
 into the API layer directly; it is the seam between HTTP and the graph.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
-
-from sqlalchemy import select
 
 from agents.graph import AdvisorGraph, build_advisor_graph
 from core.config import Settings
 from core.database import session_factory
 from core.logging import get_logger
 from llm.clients import LLMClient, LLMConfigurationError, get_llm_client
-from models import Customer, Portfolio
+from models import Portfolio
 from services.market_service import MarketService
 from services.portfolio_service import PortfolioService
 from services.risk_service import RiskService
@@ -39,7 +37,7 @@ class AdvisorResult:
     weights: dict[str, float] = field(default_factory=dict)
     orders: list[dict[str, object]] = field(default_factory=list)
     report: str = ""
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -58,11 +56,11 @@ class AdvisorService:
     def __init__(
         self,
         settings: Settings,
-        market_service: Optional[MarketService] = None,
-        risk_service: Optional[RiskService] = None,
-        portfolio_service: Optional[PortfolioService] = None,
-        llm_client: Optional[LLMClient] = None,
-        checkpoint_db: Optional[str] = None,
+        market_service: MarketService | None = None,
+        risk_service: RiskService | None = None,
+        portfolio_service: PortfolioService | None = None,
+        llm_client: LLMClient | None = None,
+        checkpoint_db: str | None = None,
     ) -> None:
         self._settings = settings
         # Real services by default; overridable for tests via DI.

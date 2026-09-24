@@ -16,6 +16,7 @@ The scoring model combines:
 
 The formula is deterministic and unit-testable.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,8 +31,8 @@ logger = get_logger("otonom.risk")
 class RiskAssessment:
     """Result of the dynamic risk analysis for a customer."""
 
-    score: float              # 0..100
-    category: str             # Conservative | Balanced | Growth | Aggressive
+    score: float  # 0..100
+    category: str  # Conservative | Balanced | Growth | Aggressive
     max_equity_weight: float  # 0..1 maximum allowed equity allocation
     rationale: str
 

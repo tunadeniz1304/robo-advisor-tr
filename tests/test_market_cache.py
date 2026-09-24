@@ -4,6 +4,7 @@ Uses a counting source so cache hits vs network downloads are observable:
 two fetches of the same symbol set within the TTL must produce a single
 download_history call, and invalidate_cache() must force a reload.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -5,6 +5,7 @@ and closed via aclose() — and the compiled graph must invoke without leaking
 the connection (previously from_conn_string was passed to compile() directly,
 which is an async context manager, not a saver).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,9 +39,7 @@ async def test_durable_checkpointer_build_and_invoke(tmp_path: Path) -> None:
         )
         try:
             assert graph.checkpointer is not None, "durable checkpointer should be attached"
-            result = await graph.ainvoke(
-                {"portfolio_id": 1, "customer_id": 1, "holdings": {}}
-            )
+            result = await graph.ainvoke({"portfolio_id": 1, "customer_id": 1, "holdings": {}})
             assert "error" in result or "weights" in result
         finally:
             await graph.aclose()

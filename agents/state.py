@@ -18,6 +18,7 @@ Field semantics:
     * ``report``  — the LLM narrative written back to the API response.
     * ``error``   — non-null when a node failed; short-circuits the graph.
 """
+
 from __future__ import annotations
 
 from typing import TypedDict
@@ -31,15 +32,15 @@ class AdvisorState(TypedDict, total=False):
     holdings: dict[str, float]
 
     # Piyasa Ajanı çıktısı
-    market: dict[str, object]          # {ticker: {last_price, momentum_1m, volatility_annualized}}
-    _returns: dict[str, object]        # {date: {ticker: ret}} — aligned returns
+    market: dict[str, object]  # {ticker: {last_price, momentum_1m, volatility_annualized}}
+    _returns: dict[str, object]  # {date: {ticker: ret}} — aligned returns
 
     # Risk Ajanı çıktısı
-    risk: dict[str, object]            # {score, category, max_equity_weight, rationale}
+    risk: dict[str, object]  # {score, category, max_equity_weight, rationale}
 
     # Portföy Yöneticisi çıktısı
-    weights: dict[str, float]          # {ticker: weight}
-    orders: list[dict[str, object]]    # [{ticker, side, quantity, price, amount}]
+    weights: dict[str, float]  # {ticker: weight}
+    orders: list[dict[str, object]]  # [{ticker, side, quantity, price, amount}]
 
     # Raporlama
     report: str

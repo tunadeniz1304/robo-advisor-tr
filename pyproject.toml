@@ -1,0 +1,59 @@
+[project]
+name = "otonom-finansal-danisman"
+version = "2.0.0"
+description = "Kurumsal seviyede dijital varlık yönetimi (robo-advisor) platformu"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["alembic/versions", "frontend", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC"]
+ignore = [
+    "E501",   # satır uzunluğu formatter'a bırakıldı
+    "B008",   # FastAPI Depends/Query varsayılanları
+    "UP007",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agents", "core", "llm", "models", "routers", "schemas", "services", "scripts"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_configs = true
+no_implicit_optional = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+follow_imports = "silent"
+exclude = ["alembic/", "build/", "frontend/", "data/"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -p no:cacheprovider"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+python_files = ["test_*.py"]
+filterwarnings = [
+    "ignore::DeprecationWarning:yfinance.*",
+    "ignore::DeprecationWarning:passlib.*",
+]
+
+[tool.coverage.run]
+source = ["agents", "core", "llm", "models", "routers", "schemas", "services"]
+omit = ["tests/*", "alembic/*", "scripts/*"]
+
+[tool.coverage.report]
+show_missing = false
+skip_covered = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError", '^\s*\.\.\.$']

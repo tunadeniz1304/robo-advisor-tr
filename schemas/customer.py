@@ -1,8 +1,8 @@
 """Pydantic v2 schemas for the Customer resource."""
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -17,7 +17,7 @@ class CustomerCreate(BaseModel):
     investment_horizon_years: int = Field(default=5, ge=1, le=50)
     monthly_income: float = Field(default=0.0, ge=0.0)
     declared_risk_tolerance: int = Field(default=3, ge=1, le=5)
-    financial_goal: Optional[str] = Field(default=None, max_length=500)
+    financial_goal: str | None = Field(default=None, max_length=500)
 
 
 # --- Update ----------------------------------------------------------------
@@ -26,12 +26,12 @@ class CustomerCreate(BaseModel):
 class CustomerUpdate(BaseModel):
     """Payload for updating an existing customer (all fields optional)."""
 
-    full_name: Optional[str] = Field(default=None, min_length=2, max_length=160)
-    email: Optional[EmailStr] = None
-    investment_horizon_years: Optional[int] = Field(default=None, ge=1, le=50)
-    monthly_income: Optional[float] = Field(default=None, ge=0.0)
-    declared_risk_tolerance: Optional[int] = Field(default=None, ge=1, le=5)
-    financial_goal: Optional[str] = Field(default=None, max_length=500)
+    full_name: str | None = Field(default=None, min_length=2, max_length=160)
+    email: EmailStr | None = None
+    investment_horizon_years: int | None = Field(default=None, ge=1, le=50)
+    monthly_income: float | None = Field(default=None, ge=0.0)
+    declared_risk_tolerance: int | None = Field(default=None, ge=1, le=5)
+    financial_goal: str | None = Field(default=None, max_length=500)
 
 
 # --- Read ------------------------------------------------------------------
@@ -48,6 +48,6 @@ class CustomerRead(BaseModel):
     investment_horizon_years: int
     monthly_income: float
     declared_risk_tolerance: int
-    financial_goal: Optional[str]
+    financial_goal: str | None
     created_at: datetime
     updated_at: datetime

@@ -1,4 +1,5 @@
 """Unit tests for drift-based rebalancing trigger analysis."""
+
 from __future__ import annotations
 
 import pytest

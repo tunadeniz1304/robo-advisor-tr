@@ -12,6 +12,7 @@ Provides read-only analytics that the API surfaces to advisors and customers:
 All functions are pure (accept data in, return JSON-friendly dicts), so they
 are unit-testable without the network or a database.
 """
+
 from __future__ import annotations
 
 import math
@@ -48,7 +49,9 @@ class ValuationItem:
             "market_value": round(self.market_value, 4),
             "weight": round(self.weight, 6),
             "avg_cost": round(self.avg_cost, 4) if self.avg_cost is not None else None,
-            "unrealized_pnl": round(self.unrealized_pnl, 4) if self.unrealized_pnl is not None else None,
+            "unrealized_pnl": round(self.unrealized_pnl, 4)
+            if self.unrealized_pnl is not None
+            else None,
         }
 
 
@@ -303,7 +306,9 @@ class AnalyticsService:
             "var_95": round(var_95, 6),
             "observations": int(len(series)),
         }
-        logger.info("performance_metrics", **{k: v for k, v in result.items() if k != "observations"})
+        logger.info(
+            "performance_metrics", **{k: v for k, v in result.items() if k != "observations"}
+        )
         return result
 
     @staticmethod
@@ -360,19 +365,19 @@ def _normal_ppf(prob: float) -> float:
 
     if prob < plow:  # rational approximation for the lower tail
         q = math.sqrt(-2.0 * math.log(prob))
-        num = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5])
-        den = ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+        num = ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
+        den = (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0
         return num / den
     if prob <= phigh:  # central region
         q = prob - 0.5
         r = q * q
         num = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q
-        den = (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
+        den = ((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0
         return num / den
     # upper tail (symmetry)
     q = math.sqrt(-2.0 * math.log(1.0 - prob))
-    num = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5])
-    den = ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+    num = ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
+    den = (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0
     return -num / den
 
 
@@ -386,7 +391,14 @@ class MonteCarloProjection:
     — the same family of output robo-advisors surface to customers.
     """
 
-    def __init__(self, current_value: float, annual_return: float, annual_vol: float, horizon_years: float, n_simulations: int = 2000) -> None:
+    def __init__(
+        self,
+        current_value: float,
+        annual_return: float,
+        annual_vol: float,
+        horizon_years: float,
+        n_simulations: int = 2000,
+    ) -> None:
         self.current = float(current_value)
         self.mu = float(annual_return)
         self.sigma = float(annual_vol)
@@ -396,7 +408,13 @@ class MonteCarloProjection:
     def run(self, rng: np.random.Generator | None = None) -> dict[str, object]:
         """Simulate and return percentile endpoints of final wealth."""
         if self.current <= 0 or self.horizon <= 0:
-            return {"current_value": self.current, "simulations": 0, "p5": self.current, "p50": self.current, "p95": self.current}
+            return {
+                "current_value": self.current,
+                "simulations": 0,
+                "p5": self.current,
+                "p50": self.current,
+                "p95": self.current,
+            }
         rng = rng or np.random.default_rng()
         steps = max(1, int(self.horizon * TRADING_DAYS))
         dt = self.horizon / steps

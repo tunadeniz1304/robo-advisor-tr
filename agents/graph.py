@@ -17,10 +17,10 @@ The workflow is assembled *per request* through dependency injection (market
 service, risk service, MPT service, LLM client), so it is fully decoupled from
 global state and trivially testable with deterministic doubles.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from langgraph.graph import END, START, StateGraph
 
@@ -73,7 +73,7 @@ async def build_advisor_graph(
     portfolio_service: PortfolioService,
     llm_client: LLMClient,
     thread_id: str,
-    checkpoint_db: Optional[str | Path] = None,
+    checkpoint_db: str | Path | None = None,
 ) -> AdvisorGraph:
     """Compile the advisor workflow into a runnable graph.
 
@@ -115,7 +115,6 @@ async def build_advisor_graph(
 
     if checkpoint_db is not None:
         import aiosqlite
-
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
         # from_conn_string is an async context manager; instead we open the

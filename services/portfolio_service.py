@@ -20,6 +20,7 @@ Design notes:
     * Shapes are validated explicitly; degenerate input is handled with a
       documented fallback chain instead of crashing or emitting NaNs.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -122,7 +123,7 @@ class PortfolioService:
         weights = self._long_only(weights)
         weights = self._apply_equity_cap(weights, max_equity_weight)
 
-        result = {ticker: float(w) for ticker, w in zip(frame.columns, weights)}
+        result = {ticker: float(w) for ticker, w in zip(frame.columns, weights, strict=True)}
         self._log_result(result)
         return result
 

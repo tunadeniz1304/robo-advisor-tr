@@ -1,4 +1,5 @@
 """Unit tests for the deterministic risk-scoring model and Markowitz MPT."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,9 +59,7 @@ def _returns_frame(n_assets: int = 3, n_days: int = 120) -> pd.DataFrame:
     rng = np.random.default_rng(1)
     # Distinct drift per asset so the optimizer can differentiate them.
     drifts = np.linspace(0.0002, 0.0012, n_assets)
-    data = {
-        f"A{i}": rng.normal(drift, 0.01, n_days) for i, drift in enumerate(drifts)
-    }
+    data = {f"A{i}": rng.normal(drift, 0.01, n_days) for i, drift in enumerate(drifts)}
     return pd.DataFrame(data)
 
 

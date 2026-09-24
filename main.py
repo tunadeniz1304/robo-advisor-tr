@@ -11,6 +11,7 @@ stdout/stderr utf-8 olarak yapılandırılır (Python 3.11 + cp1254 locale).
 Uygulama (FastAPI) ``core.app.create_app`` ile üretilir; loglama structlog
 ile, ayarlar ``.env`` üzerinden python-dotenv ile yüklenir.
 """
+
 import sys
 
 # Windows cp1254 konsolunda Türkçe çıktıların çökmemesi için utf-8'e sabitle.
@@ -20,9 +21,9 @@ for stream in (sys.stdout, sys.stderr):
     except AttributeError:  # pragma: no cover - bazı ortamlarda yok
         pass
 
-from core.app import create_app
-from core.config import load_dotenv_file
-from core.logging import configure_logging_from_env, get_logger
+from core.app import create_app  # noqa: E402
+from core.config import load_dotenv_file  # noqa: E402
+from core.logging import configure_logging_from_env, get_logger  # noqa: E402
 
 load_dotenv_file()
 configure_logging_from_env()

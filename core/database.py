@@ -15,6 +15,7 @@ The dependency injection layer is kept explicit: tests can substitute the
 session factory (e.g. with an in-memory SQLite engine) without touching the
 application code.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -26,9 +27,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-
-# Re-exported so ``from core.database import Base`` is the canonical import.
-Base: type[DeclarativeBase] = DeclarativeBase
 
 
 class Base(DeclarativeBase):
@@ -155,7 +153,5 @@ def session_factory() -> AsyncSession:
         RuntimeError: If :func:`adopt_engine` has not been called yet.
     """
     if SessionFactory is None:
-        raise RuntimeError(
-            "Database engine not initialised. Call adopt_engine() in app startup."
-        )
+        raise RuntimeError("Database engine not initialised. Call adopt_engine() in app startup.")
     return SessionFactory()

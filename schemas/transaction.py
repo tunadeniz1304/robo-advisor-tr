@@ -1,13 +1,14 @@
 """Pydantic v2 schemas for the Transaction resource."""
+
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     """Direction of a trade: BUY acquires, SELL disposes."""
 
     BUY = "BUY"

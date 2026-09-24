@@ -11,6 +11,7 @@ that wires :class:`services.advisor_service.AdvisorService`. Production uses
 real services (see below); tests override this dependency with deterministic
 doubles, so integration tests never touch the network.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status

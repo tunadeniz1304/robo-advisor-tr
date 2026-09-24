@@ -6,6 +6,7 @@ auditors, and the frontend dashboard — list by portfolio or customer, plus
 single-run detail. Write happens only inside the LangGraph workflow; this
 endpoint is intentionally read-only.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

@@ -4,6 +4,7 @@ Every template is a plain, readable string in Turkish with typed ``{fields}``;
 no prompt is constructed by string concatenation elsewhere. The separation lets
 the LLM prompts evolve (or be A/B-tested) without touching agent code.
 """
+
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------

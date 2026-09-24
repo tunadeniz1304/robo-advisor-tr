@@ -5,9 +5,10 @@ The static inputs stored here (investment horizon, income, self-declared
 tolerance) are the *inputs* to the dynamic risk score computation, never the
 score itself — the Risk Agent computes the dynamic score at runtime.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Float, Integer, String, Text
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 
 def _utcnow() -> datetime:
     """Return timezone-aware UTC now (stored without tz by SQLite)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Customer(Base):
@@ -42,12 +43,10 @@ class Customer(Base):
 
     # --- Zaman damgaları -----------------------------------------------------
     created_at: Mapped[datetime] = mapped_column(nullable=False, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        nullable=False, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, default=_utcnow, onupdate=_utcnow)
 
     # --- İlişkiler ------------------------------------------------------------
-    portfolios: Mapped[list["Portfolio"]] = relationship(
+    portfolios: Mapped[list[Portfolio]] = relationship(
         back_populates="customer",
         cascade="all, delete-orphan",
         passive_deletes=True,

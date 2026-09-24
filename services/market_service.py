@@ -16,12 +16,12 @@ talks to the network; tests inject a deterministic in-memory source that
 satisfies the same protocol, so the rest of the system is verified offline
 while production still uses real market data.
 """
+
 from __future__ import annotations
 
 import asyncio
 import math
 from dataclasses import dataclass, field
-from datetime import date
 from typing import Protocol
 
 import pandas as pd
@@ -202,7 +202,11 @@ class MarketService:
             else 0.0
         )
         # Annualised volatility from daily standard deviation.
-        vol = float(returns.std()) * math.sqrt(self.TRADING_DAYS) if len(returns) >= self._min_periods else 0.0
+        vol = (
+            float(returns.std()) * math.sqrt(self.TRADING_DAYS)
+            if len(returns) >= self._min_periods
+            else 0.0
+        )
 
         daily_returns = {
             idx.date().isoformat(): float(value)
@@ -225,9 +229,7 @@ class MarketService:
 
     # -- convenience for Markowitz -------------------------------------------
 
-    def build_returns_frame(
-        self, snapshots: dict[str, MarketSnapshot]
-    ) -> pd.DataFrame:
+    def build_returns_frame(self, snapshots: dict[str, MarketSnapshot]) -> pd.DataFrame:
         """Align per-ticker daily returns into a single ``ticker x date`` frame.
 
         Tickers that report no returns are dropped; dates are unioned (pandas

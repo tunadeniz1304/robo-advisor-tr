@@ -12,9 +12,10 @@ app with an in-memory database and deterministic stubs without touching global
 state. The module-level ``app`` singleton is what uvicorn (root ``main.py``)
 serves in production.
 """
+
 from __future__ import annotations
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -100,7 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(advisor.router, prefix=api_prefix)
 
     # --- Eklemeler (sürekli geliştirme): analytics + risk raporu -------------
-    from routers import analytics, advisor_risk, runs
+    from routers import advisor_risk, analytics, runs
 
     app.include_router(analytics.router, prefix=api_prefix)
     app.include_router(advisor_risk.router, prefix=api_prefix)

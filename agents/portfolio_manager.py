@@ -17,6 +17,7 @@ for qualitative gerekçe (rationale); the *binding* weights come from the MPT
 optimizer — the LLM may adjust them within the risk ceiling, but never
 override the ceiling itself.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,6 @@ from collections.abc import Awaitable, Callable
 
 import pandas as pd
 from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.prompts import PORTFOLIO_MANAGER_SYSTEM, PORTFOLIO_MANAGER_USER
 from agents.state import AdvisorState
@@ -134,7 +134,9 @@ class PortfolioManagerAgent:
             weights = {t: 1.0 / len(tickers) for t in tickers} if tickers else {}
             logger.warning("markowitz_insufficient_data_equal_weight", tickers=tickers)
         else:
-            weights = self._mpt.tangency_weights(frame, risk_free_rate=0.0, max_equity_weight=ceiling)
+            weights = self._mpt.tangency_weights(
+                frame, risk_free_rate=0.0, max_equity_weight=ceiling
+            )
             # Sadece state'te var olan, verisi olan varlıkları döndür.
             weights = {t: w for t, w in weights.items() if t in market}
         return weights
@@ -155,7 +157,9 @@ class PortfolioManagerAgent:
                 raise RuntimeError(f"Portfolio {portfolio_id} bulunamadı.")
 
             prices = {
-                t: float(snap.get("last_price", 0.0)) for t, snap in market.items() if isinstance(snap, dict)
+                t: float(snap.get("last_price", 0.0))
+                for t, snap in market.items()
+                if isinstance(snap, dict)
             }
             current = dict(portfolio.holdings or {})
             cash_before = float(portfolio.cash)
@@ -195,7 +199,7 @@ class PortfolioManagerAgent:
                             "amount": amount,
                         }
                     )
-                    cash_after += (amount if side == "SELL" else -amount)
+                    cash_after += amount if side == "SELL" else -amount
 
                 new_holdings[ticker] = round(target_qty, 6)
 
@@ -203,7 +207,10 @@ class PortfolioManagerAgent:
             await session.execute(
                 update(Portfolio)
                 .where(Portfolio.id == portfolio_id)
-                .values(holdings={k: float(v) for k, v in new_holdings.items()}, cash=round(cash_after, 4))
+                .values(
+                    holdings={k: float(v) for k, v in new_holdings.items()},
+                    cash=round(cash_after, 4),
+                )
             )
 
             # SQL INSERT: her işlem için ledger kaydı

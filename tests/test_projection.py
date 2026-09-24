@@ -1,8 +1,8 @@
 """Unit tests for the Monte Carlo wealth projection."""
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from services.analytics_service import MonteCarloProjection
 
@@ -27,5 +27,7 @@ def test_projection_neutral_when_no_value() -> None:
 
 
 def test_projection_guarantees_ordering() -> None:
-    res = MonteCarloProjection(50000.0, 0.04, 0.2, 20.0, n_simulations=3000).run(rng=np.random.default_rng(3))
+    res = MonteCarloProjection(50000.0, 0.04, 0.2, 20.0, n_simulations=3000).run(
+        rng=np.random.default_rng(3)
+    )
     assert res["p5"] <= res["p50"] <= res["p95"]

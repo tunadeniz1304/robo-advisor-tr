@@ -13,12 +13,13 @@ The configuration reads the same environment variables as
 :class:`core.config.Settings`; it does not import the settings object to avoid
 a circular dependency between the logging layer and the settings layer.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import sys
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -43,7 +44,7 @@ def _configure_stdlib(level: str) -> None:
     )
 
 
-def configure_logging(level: Optional[str] = None, log_json: Optional[bool] = None) -> None:
+def configure_logging(level: str | None = None, log_json: bool | None = None) -> None:
     """Configure structlog once per process.
 
     Args:
@@ -81,9 +82,7 @@ def configure_logging(level: Optional[str] = None, log_json: Optional[bool] = No
 
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, level, logging.INFO)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, level, logging.INFO)),
         logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
         cache_logger_on_first_use=True,
     )

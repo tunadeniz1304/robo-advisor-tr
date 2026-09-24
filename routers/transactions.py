@@ -4,6 +4,7 @@ Transactions are primarily created by the Portfolio Manager's rebalancing
 workflow (reason="rebalance"); this router also exposes manual placement and
 read-only ledger queries.
 """
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from models import Portfolio, Transaction
-from schemas.transaction import TransactionCreate, TransactionRead, Side
+from schemas.transaction import Side, TransactionCreate, TransactionRead
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -22,9 +23,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.post("", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
-async def create_transaction(
-    payload: TransactionCreate, session: SessionDep
-) -> Transaction:
+async def create_transaction(payload: TransactionCreate, session: SessionDep) -> Transaction:
     """Place a manual transaction on an existing portfolio."""
     portfolio = await session.get(Portfolio, payload.portfolio_id)
     if portfolio is None:

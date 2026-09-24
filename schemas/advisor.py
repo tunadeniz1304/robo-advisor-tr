@@ -1,7 +1,6 @@
 """Pydantic schemas for the Advisor (rebalancing) API."""
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
@@ -14,4 +13,4 @@ class AdvisorResponse(BaseModel):
     weights: dict[str, float] = Field(default_factory=dict)
     orders: list[dict[str, object]] = Field(default_factory=list)
     report: str = ""
-    error: Optional[str] = None
+    error: str | None = None

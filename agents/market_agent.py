@@ -8,6 +8,7 @@ nodes. Failure handling: a download error becomes a first-class state error —
 the graph short-circuits with a clear message instead of propagating raw
 network exceptions into the API layer.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -54,18 +55,14 @@ class MarketAgent:
                     "market": {},
                 }
 
-            market = {
-                ticker: snap.to_dict() for ticker, snap in snapshots.items()
-            }
+            market = {ticker: snap.to_dict() for ticker, snap in snapshots.items()}
             # aligned returns frame'ini yalnızca snapshot'lardan çıkarıp
             # state içinde kullanılabilir (JSON) forma indir.
             returns = self._market.build_returns_frame(snapshots)
             returns_payload: dict[str, object] = {}
             if not returns.empty:
                 returns_payload = {
-                    idx.date().isoformat(): {
-                        col: float(row[col]) for col in returns.columns
-                    }
+                    idx.date().isoformat(): {col: float(row[col]) for col in returns.columns}
                     for idx, row in returns.iterrows()
                 }
 

@@ -20,10 +20,10 @@ Design:
 
 Providers are constructed lazily with the official asynchronous SDK clients.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from core.config import Settings
 from core.logging import get_logger
@@ -117,7 +117,9 @@ class OpenAIClient(LLMClient):
 class AnthropicClient(LLMClient):
     """Real Anthropic messages client (``anthropic`` SDK, async)."""
 
-    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-latest", timeout: float = 60.0) -> None:
+    def __init__(
+        self, api_key: str, model: str = "claude-3-5-haiku-latest", timeout: float = 60.0
+    ) -> None:
         if not api_key or not api_key.strip():
             raise LLMConfigurationError("ANTHROPIC_API_KEY boş. .env dosyasını kontrol edin.")
         self._model = model
@@ -141,7 +143,9 @@ class AnthropicClient(LLMClient):
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            parts = [block.text for block in response.content if getattr(block, "type", None) == "text"]
+            parts = [
+                block.text for block in response.content if getattr(block, "type", None) == "text"
+            ]
             return "\n".join(parts).strip()
         except LLMProviderError:
             raise
