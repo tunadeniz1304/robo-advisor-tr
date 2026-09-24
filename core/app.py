@@ -90,6 +90,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db(engine, settings)
     await seed_reference_data()
     await _bootstrap_admin(settings)
+    if settings.seed_demo:
+        from services.demo_seed import seed_demo
+
+        await seed_demo(container)
     _log_llm_startup(container)
     if settings.scheduler_enabled:
         from core.scheduler import build_scheduler
@@ -216,14 +220,14 @@ def create_app(
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
-    static_dir = Path(__file__).resolve().parent.parent / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+    if frontend_dir.exists():
+        app.mount("/assets", StaticFiles(directory=frontend_dir), name="assets")
 
         @app.get("/", include_in_schema=False)
         async def dashboard() -> FileResponse:
-            """Serve the single-page dashboard."""
-            return FileResponse(static_dir / "index.html")
+            """Serve the single-page application."""
+            return FileResponse(frontend_dir / "index.html")
 
     return app
 

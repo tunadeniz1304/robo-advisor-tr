@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="tr" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Otonom Finansal Danışman</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/vendor/chart.umd.min.js" defer></script>
+  <script src="/assets/app.js" type="module"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo" aria-hidden="true">OF</span><span>Otonom Finansal Danışman</span></div>
+    <div class="badges">
+      <span id="badge-ai" class="badge" title="LLM modu">AI: …</span>
+      <span id="badge-data" class="badge" title="Veri kaynağı">Veri: …</span>
+      <button id="btn-theme" class="btn ghost" type="button" aria-label="Tema değiştir">◐</button>
+      <button id="btn-logout" class="btn ghost hidden" type="button">Çıkış</button>
+    </div>
+  </header>
+
+  <nav id="nav" class="nav hidden" aria-label="Ana menü">
+    <button data-view="dashboard" class="active">Panel</button>
+    <button data-view="onboarding">Risk profili</button>
+    <button data-view="goals">Hedefler</button>
+    <button data-view="rebalance">Yeniden dengeleme</button>
+    <button data-view="analytics">Analitik</button>
+    <button data-view="stress">Stres lab</button>
+    <button data-view="copilot">Copilot</button>
+    <button data-view="advisor" class="staff-only hidden">Danışman paneli</button>
+  </nav>
+
+  <main id="main">
+    <section id="view-login" class="card narrow">
+      <h1>Giriş</h1>
+      <form id="login-form">
+        <label>Kullanıcı adı <input name="username" autocomplete="username" required value="demo.genc"></label>
+        <label>Şifre <input name="password" type="password" autocomplete="current-password" required value="Demo!2345"></label>
+        <button class="btn primary" type="submit">Giriş yap</button>
+        <p class="muted">Demo: demo.genc / demo.ev / demo.emekli (Demo!2345) · danisman (Danisman!2345) · admin (Admin!2345)</p>
+        <p id="login-error" class="error" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="view-dashboard" class="view hidden">
+      <div class="customer-picker staff-only hidden"><label>Müşteri <select id="customer-select"></select></label></div>
+      <div class="grid kpis">
+        <div class="card kpi"><span>Net değer</span><strong id="kpi-value">–</strong></div>
+        <div class="card kpi"><span>Nakit</span><strong id="kpi-cash">–</strong></div>
+        <div class="card kpi"><span>TWR (dönem)</span><strong id="kpi-twr">–</strong></div>
+        <div class="card kpi"><span>Risk seviyesi</span><strong id="kpi-level">–</strong></div>
+      </div>
+      <div class="grid two">
+        <div class="card"><h2>Varlık dağılımı</h2><canvas id="chart-allocation" height="220"></canvas></div>
+        <div class="card"><h2>Hedef ilerlemesi</h2><div id="goal-rings" class="rings"></div></div>
+      </div>
+      <div class="card"><h2>Bildirimler</h2><ul id="nudges" class="list"></ul></div>
+      <div class="card"><h2>Piyasa yorumu</h2><div id="commentary" class="prose">Yükleniyor…</div></div>
+    </section>
+
+    <section id="view-onboarding" class="view hidden">
+      <div class="card"><h2>SPK uygunluk testi</h2>
+        <div class="progress"><div id="q-progress"></div></div>
+        <div id="q-body"></div>
+        <div class="actions"><button id="q-prev" class="btn" type="button">Geri</button><button id="q-next" class="btn primary" type="button">İleri</button></div>
+        <div id="q-result" class="prose"></div>
+      </div>
+    </section>
+
+    <section id="view-goals" class="view hidden">
+      <div class="card"><h2>Hedefler</h2><ul id="goal-list" class="list"></ul>
+        <form id="goal-form" class="inline-form">
+          <select name="goal_type"><option value="emeklilik">Emeklilik</option><option value="ev">Ev</option><option value="egitim">Eğitim</option><option value="acil_durum">Acil durum</option><option value="diger">Diğer</option></select>
+          <input name="name" placeholder="Ad" required>
+          <input name="target_amount_real" type="number" placeholder="Hedef (bugünkü TL)" required>
+          <input name="horizon_years" type="number" step="0.5" placeholder="Vade (yıl)" required>
+          <input name="initial_amount" type="number" placeholder="Başlangıç">
+          <input name="monthly_contribution" type="number" placeholder="Aylık katkı">
+          <button class="btn primary" type="submit">Ekle</button>
+        </form>
+      </div>
+      <div class="card"><h2 id="goal-title">Simülasyon</h2>
+        <div id="goal-summary" class="prose"></div>
+        <canvas id="chart-fan" height="240"></canvas>
+        <div class="sliders">
+          <label>Vade +/- yıl <input id="wi-horizon" type="range" min="-5" max="10" step="1" value="0"><output id="wi-horizon-o">0</output></label>
+          <label>Katkı çarpanı <input id="wi-contrib" type="range" min="0.5" max="2" step="0.1" value="1"><output id="wi-contrib-o">1</output></label>
+          <label>Risk seviyesi farkı <input id="wi-level" type="range" min="-3" max="3" step="1" value="0"><output id="wi-level-o">0</output></label>
+        </div>
+        <div id="whatif-result" class="prose"></div>
+      </div>
+    </section>
+
+    <section id="view-rebalance" class="view hidden">
+      <div class="card"><h2>Yeniden dengeleme önizleme</h2>
+        <div class="actions"><select id="opt-method"><option value="">Varsayılan (HRP)</option><option value="black_litterman">Black-Litterman</option><option value="min_cvar">Min-CVaR</option><option value="risk_parity">Risk paritesi</option><option value="mean_variance">Ortalama-varyans</option></select>
+          <button id="btn-propose" class="btn primary" type="button">Öneri oluştur</button></div>
+        <div id="proposal"></div>
+      </div>
+    </section>
+
+    <section id="view-analytics" class="view hidden">
+      <div class="card"><h2>Performans (tear sheet)</h2><div id="tearsheet" class="table-wrap"></div><canvas id="chart-value" height="200"></canvas></div>
+      <div class="card"><h2>Backtest: rebalance politikaları</h2><button id="btn-backtest" class="btn" type="button">Çalıştır</button><div id="backtest" class="table-wrap"></div><canvas id="chart-backtest" height="200"></canvas></div>
+    </section>
+
+    <section id="view-stress" class="view hidden">
+      <div class="card"><h2>Stres laboratuvarı</h2>
+        <div class="actions"><select id="stress-scenario"></select><button id="btn-stress" class="btn primary" type="button">Uygula</button></div>
+        <div class="inline-form"><label>BIST <input id="sc-bist" type="number" step="0.05" value="0"></label><label>USDTRY <input id="sc-usd" type="number" step="0.05" value="0"></label><label>Altın <input id="sc-gold" type="number" step="0.05" value="0"></label><label>Faiz <input id="sc-rate" type="number" step="0.01" value="0"></label><button id="btn-stress-custom" class="btn" type="button">Özel senaryo</button></div>
+        <div id="stress-result"></div><canvas id="chart-stress" height="200"></canvas>
+      </div>
+    </section>
+
+    <section id="view-copilot" class="view hidden">
+      <div class="card"><h2>Copilot</h2>
+        <div class="chips"><button class="chip" type="button">Emekliliğime yetişir miyim?</button><button class="chip" type="button">Dolar %30 artarsa ne olur?</button><button class="chip" type="button">Neden bu dağılım?</button></div>
+        <div id="chat" class="chat" aria-live="polite"></div>
+        <form id="chat-form" class="inline-form"><input id="chat-input" placeholder="Sorunuzu yazın…" required><button class="btn primary" type="submit">Gönder</button></form>
+      </div>
+    </section>
+
+    <section id="view-advisor" class="view hidden">
+      <div class="grid two">
+        <div class="card"><h2>Onay kuyruğu</h2><ul id="queue" class="list"></ul></div>
+        <div class="card"><h2>Black-Litterman ev görüşü</h2>
+          <form id="view-form" class="inline-form"><input name="symbol" value="ALTIN_TL" required><input name="expected_return" type="number" step="0.01" value="0.35" required><input name="confidence" type="number" step="0.05" value="0.6" required><button class="btn primary" type="submit">Kaydet</button></form>
+          <button id="btn-suggest" class="btn" type="button">LLM'den görüş önerisi al</button><ul id="views" class="list"></ul></div>
+      </div>
+      <div class="card"><h2>Denetim izi</h2><button id="btn-verify" class="btn" type="button">Zinciri doğrula</button><span id="verify-result"></span><ul id="audit" class="list small"></ul></div>
+    </section>
+  </main>
+  <footer class="footer">Bilgi amaçlıdır, yatırım tavsiyesi değildir. Gerçek yatırım danışmanlığı SPK lisanslı kuruluşlarca verilir.</footer>
+</body>
+</html>
