@@ -216,6 +216,7 @@ class Settings:
     evds_api_key: str | None = field(default=None, repr=False)
     checkpoint_db: str | None = None
     auto_migrate: bool = True
+    seed_demo: bool = False
 
     # -- Derived properties ------------------------------------------------
 
@@ -329,6 +330,7 @@ class Settings:
             evds_api_key=_first_env(("EVDS_API_KEY",)),
             checkpoint_db=os.getenv("CHECKPOINT_DB") or str(BASE_DIR / "checkpoints.sqlite"),
             auto_migrate=_env_bool("AUTO_MIGRATE", True),
+            seed_demo=_env_bool("SEED_DEMO", False),
         )
 
 
