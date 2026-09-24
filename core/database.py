@@ -87,15 +87,44 @@ def session_factory_for(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]
     )
 
 
+def alembic_config(database_url: str) -> Any:
+    """Build an Alembic config pointing at ``database_url``."""
+    from alembic.config import Config
+
+    from core.config import BASE_DIR
+
+    cfg = Config(str(BASE_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BASE_DIR / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    cfg.attributes["configure_logger"] = False
+    return cfg
+
+
+def run_migrations(database_url: str, revision: str = "head") -> None:
+    """Upgrade the database schema with Alembic (blocking; run in a thread)."""
+    from alembic import command
+
+    command.upgrade(alembic_config(database_url), revision)
+
+
 async def init_db(engine: AsyncEngine, settings: Any | None = None) -> None:
-    """Create all tables defined on ``Base.metadata`` (dev/test bootstrap).
+    """Bring the schema up to date.
+
+    Production and dev run Alembic migrations (``AUTO_MIGRATE=true``); when
+    migrations are disabled (e.g. a pre-migrated test template) the metadata
+    is only checked with ``create_all`` (no-op for existing tables).
 
     Args:
         engine: The async engine whose database should be initialised.
-        settings: Application settings (reserved for migration mode).
+        settings: Application settings (``auto_migrate``/``database_url``).
     """
+    import asyncio
+
     import models  # noqa: F401 - tüm modelleri metadata'ya kaydet
 
+    if settings is not None and getattr(settings, "auto_migrate", False):
+        await asyncio.to_thread(run_migrations, settings.database_url)
+        return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

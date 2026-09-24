@@ -17,6 +17,8 @@ Each test gets its own temp-file SQLite database and an authenticated
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import zlib
 from collections.abc import Iterator
 from pathlib import Path
@@ -75,11 +77,48 @@ class FakeMarketSource(MarketDataSource):
         return frames
 
 
-# ---------------------------------------------------------------- fixtures ---
+# ---------------------------------------------------------------- database ---
+
+_TEMPLATE_DIR = Path(tempfile.mkdtemp(prefix="advisor-test-template-"))
+TEMPLATE_DB = _TEMPLATE_DIR / "template.db"
+
+
+def _block_network() -> None:
+    """Fail loudly if any test tries to open a non-loopback connection."""
+    import socket
+
+    real_connect = socket.socket.connect
+
+    def guarded_connect(self: socket.socket, address: object) -> object:
+        host = address[0] if isinstance(address, tuple) else str(address)
+        if isinstance(host, str) and host not in {"127.0.0.1", "::1", "localhost"}:
+            raise RuntimeError(f"Testlerde ağ erişimi yasak: {host}")
+        return real_connect(self, address)  # type: ignore[arg-type]
+
+    socket.socket.connect = guarded_connect  # type: ignore[method-assign]
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Block the network and migrate one template database for the session."""
+    from core.database import run_migrations
+
+    if os.getenv("ALLOW_NETWORK_IN_TESTS") != "1":
+        _block_network()
+    run_migrations(f"sqlite+aiosqlite:///{TEMPLATE_DB.as_posix()}")
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    shutil.rmtree(_TEMPLATE_DIR, ignore_errors=True)
 
 
 def _test_db_url(tmp_path: Path) -> str:
-    return f"sqlite+aiosqlite:///{(tmp_path / 'test.db').as_posix()}"
+    target = tmp_path / "test.db"
+    if not target.exists():
+        shutil.copyfile(TEMPLATE_DB, target)
+    return f"sqlite+aiosqlite:///{target.as_posix()}"
+
+
+# ---------------------------------------------------------------- fixtures ---
 
 
 def make_settings(tmp_path: Path, **overrides: object) -> Settings:
@@ -97,6 +136,7 @@ def make_settings(tmp_path: Path, **overrides: object) -> Settings:
         "data_mode": "snapshot",
         "rate_limit_default": "10000/minute",
         "rate_limit_login": "1000/minute",
+        "auto_migrate": False,
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]

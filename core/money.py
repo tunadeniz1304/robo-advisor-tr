@@ -73,7 +73,9 @@ class Money(TypeDecorator[Decimal]):
     impl = Numeric(20, MONEY_SCALE)
     cache_ok = True
 
-    def __init__(self, scale: int = MONEY_SCALE) -> None:
+    def __init__(self, scale: int = MONEY_SCALE, **_ignored: Any) -> None:
+        # Alembic, tipi ``Money(precision=20, scale=6)`` olarak render eder;
+        # yalnızca ``scale`` anlamlıdır, diğer argümanlar yok sayılır.
         super().__init__()
         self.scale = scale
 
@@ -97,7 +99,7 @@ class Money(TypeDecorator[Decimal]):
 class Quantity(Money):
     """Exact quantity column with 8 decimals."""
 
-    def __init__(self) -> None:
+    def __init__(self, **_ignored: Any) -> None:
         super().__init__(scale=QTY_SCALE)
 
 
