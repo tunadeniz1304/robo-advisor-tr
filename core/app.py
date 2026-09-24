@@ -167,8 +167,10 @@ def create_app(
         customers,
         llm,
         market,
+        optimization,
         portfolios,
         runs,
+        suitability,
         system,
         transactions,
     )
@@ -187,6 +189,8 @@ def create_app(
         llm,
         market,
         audit,
+        suitability,
+        optimization,
     ):
         app.include_router(module.router, prefix=api_prefix)
     app.include_router(system.api_router, prefix=api_prefix)

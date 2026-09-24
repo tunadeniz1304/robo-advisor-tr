@@ -21,6 +21,7 @@ from llm.gateway import LLMGateway
 from services.advisor_service import AdvisorService
 from services.market_data.service import MarketDataService
 from services.market_service import MarketDataSource
+from services.optimization.service import OptimizationService
 
 logger = get_logger("otonom.container")
 
@@ -53,6 +54,7 @@ class Container:
     market: MarketDataService
     gateway: LLMGateway
     advisor: AdvisorService
+    optimizer: OptimizationService
     extras: dict[str, Any] = field(default_factory=dict)
 
     async def aclose(self) -> None:
@@ -97,7 +99,13 @@ def build_container(
         checkpoint_db=settings.checkpoint_db,
         risk_free_rate=market.risk_free_rate(),
     )
-    return Container(settings=settings, market=market, gateway=gateway, advisor=advisor)
+    return Container(
+        settings=settings,
+        market=market,
+        gateway=gateway,
+        advisor=advisor,
+        optimizer=OptimizationService(market),
+    )
 
 
 __all__ = ["Container", "build_container", "record_llm_usage"]
