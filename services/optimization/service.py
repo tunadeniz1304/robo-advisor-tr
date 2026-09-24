@@ -208,8 +208,10 @@ class OptimizationService:
 
     # -- main entry point ------------------------------------------------------------------
 
-    async def optimize(self, req: OptimizationRequest) -> OptimizationResult:
-        started = time.perf_counter()
+    def _prepare(
+        self, req: OptimizationRequest
+    ) -> tuple[str, int, int, dict[str, float], list[str], list[str]]:
+        """Method, levels, model weights, allowed universe and exclusions."""
         policy = self._policy
         method = (req.method or policy.optimization.get("default_method", "hrp")).lower()
         if method not in METHODS:
@@ -223,18 +225,41 @@ class OptimizationService:
         symbols, excluded = self.universe(gate_level, model_weights, req.exclude, req.esg_only)
         if not symbols:
             raise st.OptimizationError("Uygun enstrüman bulunamadı.")
+        return method, level, model_level, model_weights, symbols, excluded
 
+    async def optimize(self, req: OptimizationRequest) -> OptimizationResult:
+        """Optimise on the latest estimation window of the shared market data."""
+        _, _, _, _, symbols, _ = self._prepare(req)
         rets = await self.estimation_window(symbols)
-        symbols = [s for s in symbols if s in rets.columns]
-        rets = rets[symbols]
-        if rets.shape[0] < 60:
-            raise st.OptimizationError("Optimizasyon için yeterli geçmiş veri yok.")
-        cov, shrink = ledoit_wolf(rets)
-        rf = self._market.risk_free_rate()
         market_series = None
-        if policy.optimization.get("return_shrinkage") == "capm":
+        if self._policy.optimization.get("return_shrinkage") == "capm":
             bench = await self._market.returns([BENCHMARK_SYMBOL])
             market_series = bench[BENCHMARK_SYMBOL]
+        return self.optimize_on_returns(
+            req, rets, rf=self._market.risk_free_rate(), market_series=market_series
+        )
+
+    def optimize_on_returns(
+        self,
+        req: OptimizationRequest,
+        returns: pd.DataFrame,
+        *,
+        rf: float,
+        market_series: pd.Series | None = None,
+    ) -> OptimizationResult:
+        """Optimise on a given return window (no data access; used by walk-forward).
+
+        Only the rows of ``returns`` are used, so a caller that passes data up
+        to a date *t* gets weights that depend on nothing after *t*.
+        """
+        started = time.perf_counter()
+        policy = self._policy
+        method, level, model_level, model_weights, symbols, excluded = self._prepare(req)
+        symbols = [s for s in symbols if s in returns.columns]
+        rets = returns[symbols].dropna()
+        if rets.shape[0] < 60 or not symbols:
+            raise st.OptimizationError("Optimizasyon için yeterli geçmiş veri yok.")
+        cov, shrink = ledoit_wolf(rets)
         mu = expected_returns(
             rets,
             method=str(policy.optimization.get("return_shrinkage", "james_stein")),
@@ -305,7 +330,16 @@ class OptimizationService:
                 "return_estimator": policy.optimization.get("return_shrinkage", "james_stein"),
                 "observations": int(rets.shape[0]),
                 "history_years": round(rets.shape[0] / TRADING_DAYS, 2),
+                "window_end": str(rets.index[-1].date()) if len(rets.index) else None,
                 "class_band": policy.optimization.get("class_band"),
+                "class_bounds": {
+                    c: [
+                        round(cons.group_lower.get(c, 0.0), 6),
+                        round(cons.group_upper.get(c, 1.0), 6),
+                    ]
+                    for c in cons.groups
+                },
+                "binding_constraints": binding_constraints(cons, w, symbols),
                 "max_single_instrument": policy.optimization.get("max_single_instrument"),
                 "cvar_alpha": alpha,
                 "regime_tilt": req.regime_tilt,
@@ -394,6 +428,29 @@ class OptimizationService:
         return {"expected_return": float(w @ mu), "volatility": st.portfolio_volatility(w, cov)}
 
 
+def binding_constraints(
+    cons: st.Constraints, w: np.ndarray, symbols: list[str], tol: float = 1e-4
+) -> list[dict[str, Any]]:
+    """Class bounds and instrument caps that are active at the optimum.
+
+    Methods that minimise risk (HRP, min-CVaR, min-variance) push the lowest-risk
+    class to its upper bound; reporting it makes clear which part of the
+    allocation comes from the policy bands and which from the method.
+    """
+    out: list[dict[str, Any]] = []
+    for name, idx in cons.groups.items():
+        total = float(np.sum(w[list(idx)]))
+        if name in cons.group_upper and total >= cons.group_upper[name] - tol:
+            out.append({"type": "class_upper", "name": name, "bound": cons.group_upper[name]})
+        elif name in cons.group_lower and total <= cons.group_lower[name] + tol:
+            if cons.group_lower[name] > 0:
+                out.append({"type": "class_lower", "name": name, "bound": cons.group_lower[name]})
+    for i, s in enumerate(symbols):
+        if cons.upper[i] < 1.0 and w[i] >= cons.upper[i] - tol:
+            out.append({"type": "instrument_cap", "name": s, "bound": float(cons.upper[i])})
+    return out
+
+
 def apply_tilt(class_weights: dict[str, float], tilt: float) -> dict[str, float]:
     """Shift ``tilt`` of weight from defensive to risky classes (or back).
 
@@ -424,4 +481,5 @@ __all__ = [
     "OptimizationService",
     "View",
     "apply_tilt",
+    "binding_constraints",
 ]
