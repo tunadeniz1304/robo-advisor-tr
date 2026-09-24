@@ -19,7 +19,8 @@ from core.logging import get_logger
 from llm.clients import LLMClient, get_llm_client
 from llm.gateway import LLMGateway
 from services.advisor_service import AdvisorService
-from services.market_service import MarketDataSource, MarketService
+from services.market_data.service import MarketDataService
+from services.market_service import MarketDataSource
 
 logger = get_logger("otonom.container")
 
@@ -49,7 +50,7 @@ class Container:
     """Shared services of one application instance."""
 
     settings: Settings
-    market: MarketService
+    market: MarketDataService
     gateway: LLMGateway
     advisor: AdvisorService
     extras: dict[str, Any] = field(default_factory=dict)
@@ -59,10 +60,12 @@ class Container:
 
 
 def default_market_source(settings: Settings) -> MarketDataSource:
-    """Production market source (live Yahoo Finance, ≥3y history)."""
-    from services.market_service import YFinanceSource
+    """Live Yahoo Finance → offline snapshot chain (``DATA_MODE``)."""
+    from services.market_data.sources import ChainedSource, LiveYahooSource, SnapshotSource
 
-    return YFinanceSource(period="5y")
+    snapshot = SnapshotSource()
+    live = None if settings.data_mode == "snapshot" else LiveYahooSource(macro_provider=snapshot)
+    return ChainedSource(live, snapshot, mode=settings.data_mode)
 
 
 def build_container(
@@ -81,7 +84,7 @@ def build_container(
     Returns:
         The :class:`Container`.
     """
-    market = MarketService(
+    market = MarketDataService(
         market_source or default_market_source(settings),
         cache_ttl_seconds=settings.market_cache_ttl_seconds,
     )
@@ -92,6 +95,7 @@ def build_container(
         market_service=market,
         gateway=gateway,
         checkpoint_db=settings.checkpoint_db,
+        risk_free_rate=market.risk_free_rate(),
     )
     return Container(settings=settings, market=market, gateway=gateway, advisor=advisor)
 

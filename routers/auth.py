@@ -18,6 +18,7 @@ from core.middleware import client_key
 from core.security import TokenError, create_token, decode_token, hash_password, verify_password
 from models import Customer, Portfolio, User
 from schemas.auth import LoginRequest, MeResponse, RefreshRequest, RegisterRequest, TokenResponse
+from services.audit import record_audit
 
 logger = get_logger("otonom.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -64,6 +65,14 @@ async def _authenticate(session: SessionDep, username: str, password: str) -> Us
             detail="Kullanıcı adı veya şifre hatalı.",
         )
     logger.info("login_succeeded", user_id=user.id, role=user.role)
+    await record_audit(
+        actor=f"user:{user.id}",
+        actor_role=user.role,
+        action="auth.login",
+        entity_type="user",
+        entity_id=user.id,
+        customer_id=user.customer_id,
+    )
     return user
 
 
@@ -181,4 +190,13 @@ async def register(
     await session.commit()
     await session.refresh(user)
     logger.info("customer_registered", user_id=user.id, customer_id=customer.id)
+    await record_audit(
+        actor=f"user:{user.id}",
+        actor_role="musteri",
+        action="auth.register",
+        entity_type="customer",
+        entity_id=customer.id,
+        customer_id=customer.id,
+        payload={"initial_cash": payload.initial_cash},
+    )
     return _issue(request.app.state.settings, user)

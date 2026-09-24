@@ -14,10 +14,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from core.deps import SessionDep, UserDep, load_portfolio_checked
+from core.deps import SessionDep, UserDep, actor_of, load_portfolio_checked
 from core.logging import get_logger
 from schemas.advisor import AdvisorResponse
 from services.advisor_service import AdvisorService
+from services.audit import record_audit
 
 logger = get_logger("otonom.router.advisor")
 router = APIRouter(prefix="/advisor", tags=["advisor"])
@@ -53,4 +54,17 @@ async def rebalance_portfolio(
     result = await service.run_rebalance(portfolio_id=portfolio_id, customer_id=customer_id)
     if result.error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=result.error)
+    await record_audit(
+        actor=actor_of(user),
+        actor_role=user.role,
+        action="advisor.rebalance",
+        entity_type="portfolio",
+        entity_id=portfolio_id,
+        customer_id=customer_id,
+        payload={
+            "orders": len(result.orders),
+            "llm_mode": result.llm_mode,
+            "run_id": result.run_id,
+        },
+    )
     return AdvisorResponse.model_validate(result.to_dict())

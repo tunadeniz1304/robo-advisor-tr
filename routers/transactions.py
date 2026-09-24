@@ -12,9 +12,10 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
-from core.deps import SessionDep, UserDep, load_portfolio_checked
+from core.deps import SessionDep, UserDep, actor_of, load_portfolio_checked
 from models import Customer, Portfolio, Transaction
 from schemas.transaction import TransactionCreate, TransactionRead
+from services.audit import record_audit
 from services.ledger import LedgerError, apply_trade
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
@@ -44,7 +45,22 @@ async def create_transaction(
         ) from exc
     await session.commit()
     await session.refresh(result.transaction)
-    return result.transaction
+    tx = result.transaction
+    await record_audit(
+        actor=actor_of(user),
+        actor_role=user.role,
+        action="trade.manual",
+        entity_type="transaction",
+        entity_id=tx.id,
+        customer_id=portfolio.customer_id,
+        payload={
+            "symbol": tx.ticker,
+            "side": tx.side,
+            "quantity": float(tx.quantity),
+            "price": float(tx.price),
+        },
+    )
+    return tx
 
 
 @router.get("", response_model=list[TransactionRead])

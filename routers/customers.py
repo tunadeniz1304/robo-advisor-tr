@@ -8,9 +8,17 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from core.deps import CurrentUser, SessionDep, UserDep, load_customer_checked, require_roles
+from core.deps import (
+    CurrentUser,
+    SessionDep,
+    UserDep,
+    actor_of,
+    load_customer_checked,
+    require_roles,
+)
 from models import Customer
 from schemas.customer import CustomerCreate, CustomerRead, CustomerUpdate
+from services.audit import record_audit
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -35,6 +43,14 @@ async def create_customer(payload: CustomerCreate, session: SessionDep, user: St
             detail="Bu e-posta adresi zaten kayıtlı.",
         ) from exc
     await session.refresh(customer)
+    await record_audit(
+        actor=actor_of(user),
+        actor_role=user.role,
+        action="customer.create",
+        entity_type="customer",
+        entity_id=customer.id,
+        customer_id=customer.id,
+    )
     return customer
 
 
@@ -81,6 +97,15 @@ async def update_customer(
             detail="Bu e-posta adresi başka bir müşteriye ait.",
         ) from exc
     await session.refresh(customer)
+    await record_audit(
+        actor=actor_of(user),
+        actor_role=user.role,
+        action="customer.update",
+        entity_type="customer",
+        entity_id=customer.id,
+        customer_id=customer.id,
+        payload={"fields": sorted(k for k in updates if k not in {"email", "monthly_income"})},
+    )
     return customer  # type: ignore[no-any-return]
 
 
@@ -90,3 +115,10 @@ async def delete_customer(customer_id: int, session: SessionDep, user: AdminDep)
     customer = await load_customer_checked(session, user, customer_id)
     await session.delete(customer)
     await session.commit()
+    await record_audit(
+        actor=actor_of(user),
+        actor_role=user.role,
+        action="customer.delete",
+        entity_type="customer",
+        entity_id=customer_id,
+    )

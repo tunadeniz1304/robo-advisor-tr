@@ -31,6 +31,7 @@ from core.logging import LOGGER
 from core.middleware import RateLimiter, RequestContextMiddleware, install_exception_handlers
 from llm.clients import LLMClient
 from services.market_service import MarketDataSource
+from services.reference_data import seed_reference_data
 
 DEV_ADMIN_PW = "Admin!2345"
 
@@ -87,6 +88,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     adopt_engine(engine)
     await init_db(engine, settings)
+    await seed_reference_data()
     await _bootstrap_admin(settings)
     _log_llm_startup(container)
     LOGGER.info(
@@ -160,9 +162,11 @@ def create_app(
         advisor,
         advisor_risk,
         analytics,
+        audit,
         auth,
         customers,
         llm,
+        market,
         portfolios,
         runs,
         system,
@@ -181,6 +185,8 @@ def create_app(
         analytics,
         runs,
         llm,
+        market,
+        audit,
     ):
         app.include_router(module.router, prefix=api_prefix)
     app.include_router(system.api_router, prefix=api_prefix)

@@ -44,6 +44,11 @@ class CurrentUser:
         return self.role == "musteri"
 
 
+def actor_of(user: CurrentUser) -> str:
+    """Audit actor string of an authenticated user."""
+    return f"user:{user.id}"
+
+
 def get_container(request: Request) -> Any:
     """Return the application service container."""
     return request.app.state.container
