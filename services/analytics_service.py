@@ -251,60 +251,74 @@ class AnalyticsService:
         returns: pd.DataFrame,
         risk_free_rate: float = 0.0,
         confidence: float = 0.95,
+        weights: dict[str, float] | None = None,
+        cash_weight: float = 0.0,
     ) -> dict[str, object]:
         """Compute portfolio performance metrics from daily returns.
 
-        A portfolio return series is the (previously known) weighted average
-        of asset returns; when a single ``returns`` series is passed, it is
-        used directly. Portfolios with insufficient data yield neutral values
-        (0.0) rather than raising.
+        The portfolio return series is the **quantity-weighted** combination
+        of asset returns (``weights`` = current market-value weights) plus the
+        cash sleeve earning the risk-free rate. Total return is compounded
+        (``Π(1+r) − 1``) and annualised geometrically.
 
         Args:
             returns: Daily simple returns frame (rows=dates, cols=tickers).
-                One column = the portfolio itself; multiple columns are
-                weighted equally to form a synthetic portfolio.
-            risk_free_rate: Annualised risk-free rate for Sharpe.
+            risk_free_rate: Annualised risk-free rate (Sharpe and cash yield).
             confidence: VaR confidence level in (0,1), e.g. 0.95.
+            weights: ``{ticker: weight}`` of the invested sleeve; when omitted
+                a single column is used directly and several columns are
+                equally weighted (explicit fallback, logged).
+            cash_weight: Portfolio weight held in cash (earns ``rf``).
 
         Returns:
             Dict with keys: total_return, annualized_return, volatility,
-            sharpe_ratio, max_drawdown, var_95.
+            sharpe_ratio, max_drawdown, var_95, observations.
         """
         if returns is None or returns.empty:
             return self._neutral_metrics()
 
-        series: pd.Series
-        if returns.shape[1] == 1:
-            series = returns.iloc[:, 0].fillna(0.0)
+        frame = returns.replace([np.inf, -np.inf], np.nan)
+        if weights:
+            cols = [c for c in frame.columns if c in weights]
+            if not cols:
+                return self._neutral_metrics()
+            w = np.array([float(weights[c]) for c in cols])
+            series = frame[cols].fillna(0.0) @ w
+            series = series + float(cash_weight) * (risk_free_rate / TRADING_DAYS)
+        elif frame.shape[1] == 1:
+            series = frame.iloc[:, 0]
         else:
-            series = returns.mean(axis=1).fillna(0.0)
+            logger.info("performance_equal_weight_fallback", columns=int(frame.shape[1]))
+            series = frame.mean(axis=1)
 
-        series = series.replace([np.inf, -np.inf], np.nan).dropna()
+        series = series.dropna()
         if series.empty:
             return self._neutral_metrics()
 
         cumulative = (1.0 + series).cumprod()
-        total_return = float(series.sum()) if len(series) else 0.0
-        annualized_return = float((1.0 + total_return) ** (TRADING_DAYS / len(series)) - 1.0)
-        vol = float(series.std(ddof=1)) * math.sqrt(TRADING_DAYS)
+        total_return = float(cumulative.iloc[-1] - 1.0)
+        n = len(series)
+        annualized_return = float((1.0 + total_return) ** (TRADING_DAYS / n) - 1.0)
+        daily_std = float(series.std(ddof=1)) if n > 1 else 0.0
+        vol = daily_std * math.sqrt(TRADING_DAYS)
         sharpe = (annualized_return - risk_free_rate) / vol if vol > 1e-12 else 0.0
 
         running_max = cumulative.cummax()
         drawdown = cumulative / running_max - 1.0
-        max_drawdown = float(drawdown.min())
+        max_drawdown = float(min(drawdown.min(), 0.0))
 
         # Parametric (normal) VaR for a 1-day horizon.
         z = -1.0 * _normal_ppf(1.0 - confidence)
-        var_95 = float(series.std(ddof=1) * z)
+        var_95 = float(daily_std * z)
 
-        result = {
+        result: dict[str, object] = {
             "total_return": round(total_return, 6),
             "annualized_return": round(annualized_return, 6),
             "volatility": round(vol, 6),
             "sharpe_ratio": round(sharpe, 6),
             "max_drawdown": round(max_drawdown, 6),
             "var_95": round(var_95, 6),
-            "observations": int(len(series)),
+            "observations": int(n),
         }
         logger.info(
             "performance_metrics", **{k: v for k, v in result.items() if k != "observations"}
