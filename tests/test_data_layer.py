@@ -81,7 +81,16 @@ def test_snapshot_is_complete_and_offline() -> None:
     panel = source.panel()
     assert set(panel.columns) == {s.symbol for s in UNIVERSE}
     assert panel.shape[0] > 252 * 5  # ≥5 yıl günlük
-    assert not panel.isna().any().any()
+    # v2: yalnız TEFAS'ın verdiği 5 yıla sahip fonlar ilk tarihlerinden önce boştur;
+    # sınıf temsilcileri ve piyasa serileri tam uzunluktadır, hiçbir seride iç boşluk yoktur.
+    series = source.meta()["series"]
+    for sym in panel.columns:
+        col = panel[sym]
+        first = col.first_valid_index()
+        assert not col.loc[first:].isna().any(), sym
+        if BY_SYMBOL[sym].splice or BY_SYMBOL[sym].source != "tefas":
+            assert first == panel.index[0], sym
+        assert series[sym]["first_date"] == first.date().isoformat()
     macro = source.macro()
     assert {"TUFE", "POLICY_RATE"} <= set(macro.columns)
     assert source.meta()["instruments"]
@@ -116,12 +125,18 @@ def test_bond_fund_loses_on_rate_hike() -> None:
 
 
 def test_derived_gold_and_eurobond() -> None:
+    from services.market_data.derive import proxy_series
+
     idx = pd.bdate_range("2024-01-01", periods=3)
     raw = pd.DataFrame({"GC=F": [2000.0] * 3, "USDTRY=X": [30.0] * 3, "EMB": [90.0] * 3}, index=idx)
     panel = derive_instruments(raw, None)
     assert panel["ALTIN_TL"].iloc[0] == pytest.approx(2000 * 30 / TROY_OUNCE_GRAMS)
-    assert panel["EUROBOND_TL"].iloc[0] == pytest.approx(2700.0)
-    assert "TL_PPF" in panel and "TL_TAHVIL" in panel
+    # v2: fonlar canlı panelde türetilmez (gerçek TEFAS fiyatı snapshot'tan gelir);
+    # eurobond vekili yalnızca TEFAS öncesi dönemi eklemek için kullanılır.
+    assert "TL_PPF" not in panel and "EUROBOND_TL" not in panel
+    assert proxy_series("eurobond", "EUROBOND_TL", raw, pd.DataFrame()).iloc[0] == pytest.approx(
+        2700.0
+    )
 
 
 def test_universe_metadata() -> None:
