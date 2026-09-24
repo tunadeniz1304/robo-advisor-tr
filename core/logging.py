@@ -54,9 +54,9 @@ def configure_logging(level: str | None = None, log_json: bool | None = None) ->
             env var, then ``False`` (pretty console).
     """
     if level is None:
-        level = os.getenv("LOG_LEVEL", _DEFAULT_LEVEL).upper()
+        level = (os.getenv("LOG_LEVEL") or _DEFAULT_LEVEL).upper()
     if log_json is None:
-        log_json = os.getenv("LOG_JSON", "false").lower() in {"1", "true", "yes"}
+        log_json = (os.getenv("LOG_JSON") or "false").lower() in {"1", "true", "yes"}
 
     _configure_stdlib(level)
 
@@ -108,8 +108,8 @@ def configure_logging_from_env() -> None:
     Convenience helper used at application startup.
     """
     configure_logging(
-        level=os.getenv("LOG_LEVEL", _DEFAULT_LEVEL).upper(),
-        log_json=os.getenv("LOG_JSON", "false").lower() in {"1", "true", "yes"},
+        level=(os.getenv("LOG_LEVEL") or _DEFAULT_LEVEL).upper(),
+        log_json=(os.getenv("LOG_JSON") or "false").lower() in {"1", "true", "yes"},
     )
 
 
