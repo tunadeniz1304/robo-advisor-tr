@@ -45,6 +45,7 @@ class InvestmentPolicy:
     nudges: dict[str, Any]
     regime: dict[str, Any]
     stress: dict[str, Any]
+    backtest: dict[str, Any]
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
 
     # -- helpers -------------------------------------------------------------
@@ -132,6 +133,7 @@ def _parse(data: dict[str, Any]) -> InvestmentPolicy:
         nudges=dict(data["nudges"]),
         regime=dict(data["regime"]),
         stress=dict(data["stress"]),
+        backtest=dict(data["backtest"]),
         raw=data,
     )
 

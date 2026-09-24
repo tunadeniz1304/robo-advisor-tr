@@ -172,6 +172,16 @@ rel = 0.25
 abs_cap = 0.05
 class_abs = 0.03
 
+# --- Backtest (walk-forward) -------------------------------------------------------------
+# Optimizer backtest'leri yalnızca rebalance tarihine kadarki veriyle optimize eder (look-ahead yok).
+[backtest]
+window_days = 756            # tahmin penceresi (~36 ay, işlem günü)
+rebalance_days = 63          # yeniden optimizasyon aralığı (~3 ay)
+benchmark_equity = "XU100.IS"
+benchmark_bond = "TL_TAHVIL"
+mix_equity = 0.60            # 60/40 TL karma: %60 BIST 100, %40 TL tahvil fonu
+cpi_spread = 0.03            # TÜFE + %3 reel hedef
+
 # --- İşlem maliyetleri (bilgi amaçlı) ----------------------------------------------------------
 [costs]
 bsmv_rate = 0.05              # komisyon üzerinden BSMV
