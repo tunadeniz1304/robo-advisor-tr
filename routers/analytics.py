@@ -15,11 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.deps import SessionDep, UserDep, load_portfolio_checked
-from models import AdvisorRun, Portfolio
+from models import AdvisorRun, Portfolio, RebalanceProposal
 from services.analytics_service import AnalyticsService, MonteCarloProjection
 from services.market_service import MarketService, MarketSnapshot
 from services.portfolio_service import PortfolioService
-from services.tax_lots import average_cost_basis
+from services.rebalancing.costs import harvest_candidates
+from services.rebalancing.engine import PortfolioState, drift_report
+from services.tax_lots import average_cost_basis, open_lots
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 
@@ -87,7 +89,17 @@ def _market_weights(
 async def latest_target_weights(
     session: AsyncSession, portfolio_id: int
 ) -> dict[str, float] | None:
-    """Target weights of the most recent advisor run for the portfolio."""
+    """Target weights of the latest proposal (or the legacy advisor run)."""
+    proposal = (
+        await session.execute(
+            select(RebalanceProposal)
+            .where(RebalanceProposal.portfolio_id == portfolio_id)
+            .order_by(RebalanceProposal.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if proposal is not None and proposal.target_weights:
+        return {str(k): float(v) for k, v in proposal.target_weights.items()}
     run = (
         await session.execute(
             select(AdvisorRun)
@@ -121,16 +133,13 @@ async def get_valuation(
 
 @router.get("/{portfolio_id}/drift", summary="Hedef dağılıma göre sapma (bant analizi)")
 async def get_drift(
-    request: Request,
-    portfolio_id: int,
-    session: SessionDep,
-    user: UserDep,
-    trigger_band: Annotated[float, Query(ge=0.0, le=0.5)] = 0.03,
+    request: Request, portfolio_id: int, session: SessionDep, user: UserDep
 ) -> dict[str, Any]:
     """Drift vs the portfolio's current target allocation (bug #4: no stub).
 
-    The target is the latest approved/proposed allocation of the portfolio.
-    Without any target the endpoint answers 409 with a clear next step.
+    The target is the latest proposal's allocation; bands come from the
+    investment policy (wider for volatile classes). Without any target the
+    endpoint answers 409 with a clear next step.
     """
     portfolio = await load_portfolio_checked(session, user, portfolio_id)
     target = await latest_target_weights(session, portfolio_id)
@@ -140,15 +149,13 @@ async def get_drift(
             detail="Bu portföy için hedef dağılım yok. Önce bir yeniden dengeleme önerisi oluşturun.",
         )
     tickers = sorted(set(_held(portfolio)) | set(target))
-    snapshots = await market_of(request).fetch_snapshots(tickers) if tickers else {}
-    return AnalyticsService().drift_analysis(
-        portfolio_id=portfolio.id,
+    prices = await request.app.state.container.proposals.current_prices(tickers)
+    state = PortfolioState(
         cash=float(portfolio.cash),
-        holdings=dict(portfolio.holdings or {}),
-        snapshots=snapshots,
-        target_weights=target,
-        trigger_band=trigger_band,
+        quantities={k: float(v) for k, v in (portfolio.holdings or {}).items()},
+        prices=prices,
     )
+    return {"portfolio_id": portfolio.id, **drift_report(state, target)}
 
 
 @router.get("/{portfolio_id}/projection", summary="Monte Carlo projeksiyon (GBM)")
@@ -212,3 +219,25 @@ async def get_performance(
         returns, risk_free_rate=risk_free_rate, weights=weights or None, cash_weight=cash_w
     )
     return PerformanceOut.model_validate({"portfolio_id": portfolio_id, **metrics})
+
+
+@router.get("/{portfolio_id}/tax-harvest", summary="Vergi zararı hasadı simülasyonu (bilgi amaçlı)")
+async def tax_harvest(
+    request: Request, portfolio_id: int, session: SessionDep, user: UserDep
+) -> dict[str, Any]:
+    """Lots with unrealised losses and the withholding tax they could offset.
+
+    Informational simulation only; rates come from the policy table.
+    """
+    await load_portfolio_checked(session, user, portfolio_id)
+    lots = await open_lots(session, portfolio_id)
+    prices = await request.app.state.container.proposals.current_prices(
+        [lot.symbol for lot in lots]
+    )
+    candidates = harvest_candidates(lots, prices)
+    return {
+        "portfolio_id": portfolio_id,
+        "candidates": candidates,
+        "total_potential_offset": round(sum(c["potential_tax_offset"] for c in candidates), 2),
+        "note": "Bilgi amaçlıdır; vergi oranları yapılandırmadandır, güncel mevzuatı kontrol edin.",
+    }

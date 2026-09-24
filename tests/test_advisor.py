@@ -1,183 +1,163 @@
-"""Integration tests: the full Robo-Advisor rebalancing workflow.
+"""E2E: proposal → approval → execution through the API and the LangGraph
+workflow (offline market source, demo LLM).
 
-These tests exercise the entire LangGraph pipeline end-to-end through the API
-against the real app wiring — with *offline* deterministic doubles for the
-market source and the LLM client (dependency-injected, no network access):
-
-    POST /api/v1/advisor/rebalance/{portfolio_id}?customer_id=…
-
-Piyasa Ajanı (FakeMarketSource) -> Risk Ajanı (real RiskService, DB profile)
--> Portföy Yöneticisi (real Markowitz MPT + DeterministicLLM + DB UPDATE/INSERT).
+Behaviour change vs v1: ``POST /advisor/rebalance`` no longer executes
+orders; it returns a proposal awaiting approval. Execution happens exactly
+once on ``POST /proposals/{id}/approve``.
 """
 
 from __future__ import annotations
 
-import pytest
-from fastapi import FastAPI
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi.testclient import TestClient
 
-from core.config import Settings
-from models import Customer
-from routers import advisor as advisor_router
-from services.advisor_service import AdvisorService
-from services.market_service import MarketService
-from services.portfolio_service import PortfolioService
-from services.risk_service import RiskService
-from tests.conftest import (
-    DeterministicLLM,
-    FakeMarketSource,
-    auth_headers,
-    create_customer,
-    create_portfolio,
-    login,
-)
+from tests.conftest import auth_headers, create_customer, create_portfolio
 
 
-@pytest.fixture()
-def advisor_client(settings: Settings) -> TestClient:
-    """TestClient with the advisor dependency overridden with offline doubles."""
-    from core.app import create_app
-
-    app: FastAPI = create_app(settings=settings)
-    service = AdvisorService(
-        settings=settings,
-        market_service=MarketService(FakeMarketSource(symbols=[])),
-        risk_service=RiskService(),
-        portfolio_service=PortfolioService(),
-        llm_client=DeterministicLLM(),
-    )
-    app.dependency_overrides[advisor_router.get_advisor_service] = lambda: service
-    # Context manager'ı dışarıdan girmek zorundayız: lifespan (adopt_engine)
-    # yalnızca ``__enter__`` ile tetiklenir.
-    with TestClient(app) as c:
-        c.headers.update(auth_headers(login(c)))
-        yield c
-
-
-def test_advisor_rebalance_returns_weights_and_orders(advisor_client: TestClient) -> None:
-    """A full run returns weights, orders, a report and no error."""
-    customer_id = create_customer(advisor_client)["id"]
-    portfolio_id = create_portfolio(advisor_client, customer_id)["id"]
-
-    resp = advisor_client.post(
-        f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
-    )
+def _propose(client: TestClient, **pf: object) -> tuple[int, int, dict]:
+    cid = create_customer(client)["id"]
+    pid = create_portfolio(client, cid, **pf)["id"]
+    resp = client.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid})
     assert resp.status_code == 200, resp.text
-    body = resp.json()
+    return cid, pid, resp.json()
 
-    assert body["portfolio_id"] == portfolio_id
-    assert body["error"] is None
-    assert body["weights"], "weights should be non-empty"
-    assert body["report"]  # DeterministicLLM narrative present
 
-    # Weights are non-negative; risky weights sum to the risk agency's equity
-    # ceiling (the remainder is cash), never above the ceiling.
-    assert all(w >= 0 for w in body["weights"].values())
-    total = sum(body["weights"].values())
-    assert 0.0 < total <= 1.0
+def test_rebalance_creates_pending_proposal_without_executing(client: TestClient) -> None:
+    _, pid, body = _propose(client)
+    assert body["status"] == "ONAY_BEKLIYOR" and body["proposal_id"]
+    assert body["orders"] and body["weights"]
+    assert abs(sum(body["weights"].values()) - 1.0) < 1e-6
+    assert "yatırım tavsiyesi değildir" in body["report"]
+    prop = body["proposal"]
+    assert prop["explanation"] and prop["risk_before"] and prop["risk_after"]
+    assert prop["estimated_cost"] >= 0 and prop["expires_at"]
+    # Onaysız hiçbir işlem yok
+    assert client.get("/api/v1/transactions", params={"portfolio_id": pid}).json() == []
 
-    # The ceiling equals RiskService category_bounds for this profile
-    # (declared_tolerance=4, horizon=10y, income=45k -> Balanced -> 0.50).
-    ceiling = (
-        RiskService()
-        .assess(
-            Customer(
-                full_name="x",
-                email="x@y.z",
-                investment_horizon_years=10,
-                monthly_income=45000.0,
-                declared_risk_tolerance=4,
-            )
-        )
-        .max_equity_weight
+
+def test_approve_executes_once_and_updates_ledger(client: TestClient) -> None:
+    _, pid, body = _propose(client)
+    before = client.get(f"/api/v1/portfolios/{pid}").json()
+    approved = client.post(
+        f"/api/v1/proposals/{body['proposal_id']}/approve", headers={"Idempotency-Key": "k-1"}
     )
-    assert abs(total - ceiling) < 1e-6
+    assert approved.status_code == 200, approved.text
+    data = approved.json()
+    assert data["status"] == "YURUTULDU"
+    fills = data["execution_report"]["fills"]
+    ledger = client.get("/api/v1/transactions", params={"portfolio_id": pid}).json()
+    assert len(ledger) == len(fills) > 0
+    assert all(row["reason"] == "rebalance" for row in ledger)
 
-
-def test_advisor_rebalance_persists_transactions(advisor_client: TestClient) -> None:
-    """The rebalancing writes SQL INSERT rows into the transactions table."""
-    customer_id = create_customer(advisor_client)["id"]
-    portfolio_id = create_portfolio(advisor_client, customer_id)["id"]
-
-    resp = advisor_client.post(
-        f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
+    again = client.post(
+        f"/api/v1/proposals/{body['proposal_id']}/approve", headers={"Idempotency-Key": "k-1"}
     )
-    assert resp.status_code == 200, resp.text
-    orders = resp.json()["orders"]
+    assert again.status_code == 200 and again.json()["status"] == "YURUTULDU"
+    assert len(client.get("/api/v1/transactions", params={"portfolio_id": pid}).json()) == len(
+        ledger
+    )
 
-    listed = advisor_client.get(
-        "/api/v1/transactions", params={"portfolio_id": portfolio_id}
+    after = client.get(f"/api/v1/portfolios/{pid}").json()
+    assert after["holdings"] != before["holdings"] and after["cash"] >= 0
+    runs = client.get("/api/v1/runs", params={"portfolio_id": pid}).json()
+    assert len(runs) == 1 and runs[0]["status"] == "success"
+    actions = [
+        a["action"]
+        for a in client.get("/api/v1/audit", params={"customer_id": data["customer_id"]}).json()
+    ]
+    assert {"proposal.created", "proposal.approved", "proposal.executed"} <= set(actions)
+
+
+def test_concurrent_double_approval_executes_once(client: TestClient) -> None:
+    _, pid, body = _propose(client)
+    url = f"/api/v1/proposals/{body['proposal_id']}/approve"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: client.post(url), range(2)))
+    assert {r.status_code for r in results} == {200}
+    fills = client.get(f"/api/v1/proposals/{body['proposal_id']}").json()["execution_report"][
+        "fills"
+    ]
+    assert len(client.get("/api/v1/transactions", params={"portfolio_id": pid}).json()) == len(
+        fills
+    )
+
+
+def test_within_band_portfolio_gets_no_orders(client: TestClient) -> None:
+    cid, pid, body = _propose(client)
+    client.post(f"/api/v1/proposals/{body['proposal_id']}/approve")
+    again = client.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}).json()
+    assert (
+        again["needs_rebalance"] is False and again["orders"] == [] and again["proposal_id"] is None
+    )
+
+
+def test_reject_closes_proposal(client: TestClient) -> None:
+    _, pid, body = _propose(client)
+    rej = client.post(
+        f"/api/v1/proposals/{body['proposal_id']}/reject", json={"reason": "Beklemek istiyorum"}
+    )
+    assert rej.status_code == 200 and rej.json()["status"] == "REDDEDILDI"
+    assert client.post(f"/api/v1/proposals/{body['proposal_id']}/approve").status_code == 409
+    assert client.get("/api/v1/transactions", params={"portfolio_id": pid}).json() == []
+
+
+def test_new_proposal_supersedes_pending_one(client: TestClient) -> None:
+    cid, pid, first = _propose(client)
+    second = client.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}).json()
+    assert second["proposal_id"] != first["proposal_id"]
+    old = client.get(f"/api/v1/proposals/{first['proposal_id']}").json()
+    assert old["status"] == "SURESI_DOLDU"
+    assert client.post(f"/api/v1/proposals/{first['proposal_id']}/approve").status_code == 409
+
+
+def test_idempotent_creation(client: TestClient) -> None:
+    cid = create_customer(client)["id"]
+    pid = create_portfolio(client, cid)["id"]
+    h = {"Idempotency-Key": "olustur-1"}
+    a = client.post(
+        f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}, headers=h
     ).json()
-    assert len(listed) == len(orders)
-    # Liste en yeni önce sıralıdır; sıralama sözleşme değil, sembole göre eşle.
-    listed = sorted(listed, key=lambda r: r["ticker"])
-    orders = sorted(orders, key=lambda o: o["ticker"])
-    for row, order in zip(listed, orders, strict=True):
-        assert row["ticker"] == order["ticker"]
-        assert row["side"] == order["side"]
-        assert row["reason"] == "rebalance"
+    b = client.post(
+        f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}, headers=h
+    ).json()
+    assert a["proposal_id"] == b["proposal_id"]
 
 
-def test_advisor_rebalance_updates_holdings_and_cash(advisor_client: TestClient) -> None:
-    """The rebalancing writes SQL UPDATE to the portfolio holdings/cash."""
-    customer_id = create_customer(advisor_client)["id"]
-    portfolio_id = create_portfolio(advisor_client, customer_id)["id"]
-
-    resp = advisor_client.post(
-        f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
+def test_customer_approves_own_proposal_only(client: TestClient) -> None:
+    _, _, other = _propose(client)
+    reg = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "onayci",
+            "password": "GucluSifre!1",
+            "full_name": "O K",
+            "email": "o@k.com",
+            "initial_cash": 50000,
+        },
+    ).json()
+    h = auth_headers(reg["access_token"])
+    assert (
+        client.post(f"/api/v1/proposals/{other['proposal_id']}/approve", headers=h).status_code
+        == 403
     )
-    assert resp.status_code == 200, resp.text
+    pid = client.get("/api/v1/portfolios", headers=h).json()[0]["id"]
+    own = client.post(
+        f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": reg["customer_id"]}, headers=h
+    )
+    assert own.status_code == 200 and own.json()["status"] == "ONAY_BEKLIYOR"
+    done = client.post(f"/api/v1/proposals/{own.json()['proposal_id']}/approve", headers=h)
+    assert done.status_code == 200 and done.json()["status"] == "YURUTULDU"
+    listed = client.get("/api/v1/proposals", headers=h).json()
+    assert [p["customer_id"] for p in listed] == [reg["customer_id"]]
 
-    updated = advisor_client.get(f"/api/v1/portfolios/{portfolio_id}").json()
-    # Holdings now reflect target quantities.
-    assert set(updated["holdings"].keys()) == set(resp.json()["weights"].keys())
-    assert updated["cash"] >= 0
 
-
-def test_advisor_rebalance_unknown_portfolio(advisor_client: TestClient) -> None:
-    """An unknown portfolio id yields a clean 4xx, not a 500."""
-    resp = advisor_client.post("/api/v1/advisor/rebalance/9999", params={"customer_id": 1})
-    assert resp.status_code == 422
+def test_unknown_portfolio_is_422(client: TestClient) -> None:
+    assert (
+        client.post("/api/v1/advisor/rebalance/9999", params={"customer_id": 1}).status_code == 422
+    )
 
 
 def test_rebalance_without_key_runs_in_demo_mode(client: TestClient) -> None:
-    """Without LLM credentials the workflow still completes (demo, no 503)."""
-    customer_id = create_customer(client)["id"]
-    portfolio_id = create_portfolio(client, customer_id)["id"]
-
-    resp = client.post(
-        f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    _, _, body = _propose(client)
     assert body["llm_mode"] == "demo"
-    assert "yatırım tavsiyesi değildir" in body["report"]
-
-
-def test_advisor_persists_audit_run(advisor_client: TestClient) -> None:
-    """A successful run writes an immutable AdvisorRun row (audit trail)."""
-    customer_id = create_customer(advisor_client)["id"]
-    portfolio_id = create_portfolio(advisor_client, customer_id)["id"]
-
-    resp = advisor_client.post(
-        f"/api/v1/advisor/rebalance/{portfolio_id}", params={"customer_id": customer_id}
-    )
-    assert resp.status_code == 200, resp.text
-
-    runs = advisor_client.get("/api/v1/runs", params={"portfolio_id": portfolio_id}).json()
-    assert len(runs) == 1
-    run = runs[0]
-
-    assert run["portfolio_id"] == portfolio_id
-    assert run["customer_id"] == customer_id
-    assert run["status"] == "success"
-    assert run["error"] is None
-    assert run["report"]  # DeterministicLLM narrative recorded
-    assert run["orders"]  # executed orders snapshotted
-    assert set(run["target_weights"].keys()) == set(resp.json()["weights"].keys())
-    assert run["created_at"] is not None
-
-    # Single-run detail endpoint resolves the same row.
-    detail = advisor_client.get(f"/api/v1/runs/{run['id']}").json()
-    assert detail["id"] == run["id"]
-    assert detail["status"] == "success"

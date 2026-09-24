@@ -22,6 +22,8 @@ from services.advisor_service import AdvisorService
 from services.market_data.service import MarketDataService
 from services.market_service import MarketDataSource
 from services.optimization.service import OptimizationService
+from services.planning.service import GoalPlanningService
+from services.rebalancing.proposals import ProposalService
 
 logger = get_logger("otonom.container")
 
@@ -55,6 +57,8 @@ class Container:
     gateway: LLMGateway
     advisor: AdvisorService
     optimizer: OptimizationService
+    proposals: ProposalService
+    planner: GoalPlanningService
     extras: dict[str, Any] = field(default_factory=dict)
 
     async def aclose(self) -> None:
@@ -92,19 +96,24 @@ def build_container(
     )
     client = llm_client if llm_client is not None else get_llm_client(settings)
     gateway = LLMGateway(settings, client=client, recorder=record_llm_usage)
+    optimizer = OptimizationService(market)
+    proposals = ProposalService(market, optimizer, gateway)
     advisor = AdvisorService(
         settings=settings,
         market_service=market,
         gateway=gateway,
+        optimizer=optimizer,
+        proposals=proposals,
         checkpoint_db=settings.checkpoint_db,
-        risk_free_rate=market.risk_free_rate(),
     )
     return Container(
         settings=settings,
         market=market,
         gateway=gateway,
         advisor=advisor,
-        optimizer=OptimizationService(market),
+        optimizer=optimizer,
+        proposals=proposals,
+        planner=GoalPlanningService(market, gateway),
     )
 
 

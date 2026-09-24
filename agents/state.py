@@ -1,51 +1,58 @@
-"""LangGraph state schema for the Robo-Advisor workflow.
+"""LangGraph state schema of the rebalancing workflow.
 
-The state is a :class:`~typing.TypedDict` describing every field LangGraph
-propagates between nodes and persists in the checkpointer. Keeping it
-JSON-serialisable (no arbitrary objects, no DataFrames) means the whole graph
-state — including a mid-run snapshot — can be checkpointed to SQLite and
-replayed, which is a production requirement for audits.
+The state is a JSON-serialisable :class:`~typing.TypedDict`, so the durable
+checkpointer can persist a run that is paused at the human-approval
+interrupt and resume it later (even after a restart).
 
-Field semantics:
-    * ``customer_id`` / ``portfolio_id`` — immutable run parameters (input).
-    * ``holdings`` — input positions {ticker: quantity} read from the DB.
-    * ``market``  — per-ticker snapshot dicts produced by the Market Agent.
-    * ``_returns`` — aligned returns frame (JSON-ified, date-indexed) so the
-      Portfolio Manager can rebuild the DataFrame used by Markowitz.
-    * ``risk``    — :class:`services.risk_service.RiskAssessment` payload.
-    * ``weights`` — final target weights (ticker -> weight in [0,1]).
-    * ``orders``  — rebalancing orders computed by the Portfolio Manager.
-    * ``report``  — the LLM narrative written back to the API response.
-    * ``error``   — non-null when a node failed; short-circuits the graph.
+Field groups:
+    * inputs — ``portfolio_id``, ``customer_id``, actor, source/trigger,
+      optimiser method, override acknowledgement, idempotency key;
+    * node outputs — ``market`` (data source summary), ``level``
+      (suitability), ``optimization`` (target + explainability),
+      ``proposal_id``/``proposal_status``;
+    * approval — ``decision`` written by the resume command;
+    * reporting — ``report``, ``llm_mode``, ``error``.
 """
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
-class AdvisorState(TypedDict, total=False):
-    customer_id: int
+class RebalanceState(TypedDict, total=False):
+    # Girdiler
     portfolio_id: int
+    customer_id: int
+    actor: str
+    actor_role: str | None
+    user_id: int | None
+    source: str
+    trigger: str
+    method: str | None
+    override_ack: bool
+    idempotency_key: str | None
+    regime: dict[str, Any] | None
 
-    # Girdi: portföyün mevcut pozisyonları {ticker: quantity}
-    holdings: dict[str, float]
+    # Düğüm çıktıları
+    market: dict[str, Any]
+    level: dict[str, Any]
+    optimization: dict[str, Any]
+    proposal_id: int | None
+    proposal_status: str | None
+    needs_rebalance: bool
+    message: str
 
-    # Piyasa Ajanı çıktısı
-    market: dict[str, object]  # {ticker: {last_price, momentum_1m, volatility_annualized}}
-    _returns: dict[str, object]  # {date: {ticker: ret}} — aligned returns
-
-    # Risk Ajanı çıktısı
-    risk: dict[str, object]  # {score, category, max_equity_weight, rationale}
-
-    # Portföy Yöneticisi çıktısı
-    weights: dict[str, float]  # {ticker: weight}
-    orders: list[dict[str, object]]  # [{ticker, side, quantity, price, amount}]
+    # İnsan onayı
+    decision: dict[str, Any]
+    execution: dict[str, Any]
 
     # Raporlama
     report: str
-    llm_mode: str
-    llm_error_kind: str | None
-
-    # Hata yönetimi
+    llm_mode: str | None
     error: str | None
+
+
+# Geriye dönük uyumluluk: eski ad.
+AdvisorState = RebalanceState
+
+__all__ = ["AdvisorState", "RebalanceState"]

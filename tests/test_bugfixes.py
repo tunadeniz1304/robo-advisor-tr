@@ -69,14 +69,15 @@ def test_bug01_llm_failure_rebalances_exactly_once(tmp_path: Path) -> None:
         resp = c.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid})
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert body["llm_mode"] == "fallback" and body["llm_error_kind"] == "timeout"
-        assert body["orders"], "gerçek emirler yanıtta olmalı"
+        assert body["llm_mode"] == "fallback"
+        assert body["orders"], "gerçek emirler öneride olmalı"
+        assert len(c.get("/api/v1/proposals", params={"portfolio_id": pid}).json()) == 1
+        done = c.post(f"/api/v1/proposals/{body['proposal_id']}/approve").json()
         ledger = c.get("/api/v1/transactions", params={"portfolio_id": pid}).json()
-        assert len(ledger) == len(body["orders"])  # ikinci (boş) rebalance yok
+        assert len(ledger) == len(done["execution_report"]["fills"])  # ikinci rebalance yok
         runs = c.get("/api/v1/runs", params={"portfolio_id": pid}).json()
         assert len(runs) == 1 and runs[0]["status"] == "degraded"
-        assert runs[0]["orders"] == body["orders"]
-    assert failing.calls == 1  # canlı hatada onarım denenmez, doğrudan fallback
+    assert failing.calls == 1  # canlı hatada doğrudan fallback, tekrar yok
 
 
 # -- #2 performans ---------------------------------------------------------------
@@ -134,14 +135,14 @@ def test_bug04_drift_uses_real_target(client: TestClient) -> None:
     cid = create_customer(client)["id"]
     pid = create_portfolio(client, cid)["id"]
     assert client.get(f"/api/v1/portfolios/{pid}/drift").status_code == 409
-    weights = client.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}).json()[
-        "weights"
-    ]
-    drift = client.get(f"/api/v1/portfolios/{pid}/drift").json()
-    targets = {row["ticker"]: row["target_weight"] for row in drift["assets"]}
-    for sym, w in weights.items():
+    body = client.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}).json()
+    pending = client.get(f"/api/v1/portfolios/{pid}/drift").json()
+    assert pending["needs_rebalance"] is True
+    targets = {row["symbol"]: row["target_weight"] for row in pending["assets"]}
+    for sym, w in body["weights"].items():
         assert targets[sym] == pytest.approx(w, abs=1e-6)
-    assert drift["needs_rebalance"] is False  # rebalance sonrası bant içinde
+    client.post(f"/api/v1/proposals/{body['proposal_id']}/approve")
+    assert client.get(f"/api/v1/portfolios/{pid}/drift").json()["needs_rebalance"] is False
 
 
 # -- #5 projeksiyon ----------------------------------------------------------------
@@ -286,16 +287,9 @@ def test_bug13_compose_has_no_hardcoded_password_or_public_db_port() -> None:
 
 
 async def test_bug14_graph_compiled_once_with_durable_checkpointer(tmp_path: Path) -> None:
-    from core.database import adopt_engine, create_engine_from_url, init_db
     from services.advisor_service import AdvisorService
 
-    engine = create_engine_from_url(f"sqlite+aiosqlite:///{(tmp_path / 'a.db').as_posix()}")
-    adopt_engine(engine)
-    await init_db(engine)
-    service = AdvisorService(
-        make_settings(tmp_path),
-        checkpoint_db=str(tmp_path / "cp.sqlite"),
-    )
+    service = AdvisorService(make_settings(tmp_path), checkpoint_db=str(tmp_path / "cp.sqlite"))
     try:
         g1 = await service.graph()
         g2 = await service.graph()
@@ -303,7 +297,6 @@ async def test_bug14_graph_compiled_once_with_durable_checkpointer(tmp_path: Pat
         assert type(g1.checkpointer).__name__ == "AsyncSqliteSaver"
     finally:
         await service.aclose()
-        await engine.dispose()
 
 
 def test_bug14_container_uses_configured_checkpoint_db(tmp_path: Path) -> None:

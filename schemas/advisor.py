@@ -19,3 +19,8 @@ class AdvisorResponse(BaseModel):
     llm_mode: str | None = None
     llm_error_kind: str | None = None
     run_id: str | None = None
+    proposal_id: int | None = None
+    status: str | None = None
+    needs_rebalance: bool = True
+    message: str = ""
+    proposal: dict[str, Any] | None = None

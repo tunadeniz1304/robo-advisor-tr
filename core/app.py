@@ -91,6 +91,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     await seed_reference_data()
     await _bootstrap_admin(settings)
     _log_llm_startup(container)
+    if settings.scheduler_enabled:
+        from core.scheduler import build_scheduler
+
+        scheduler = build_scheduler(container)
+        scheduler.start()
+        container.extras["scheduler"] = scheduler
     LOGGER.info(
         "application_startup",
         version=settings.version,
@@ -100,6 +106,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        scheduler = container.extras.pop("scheduler", None)
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
         await container.aclose()
         await engine.dispose()
         LOGGER.info("application_shutdown")
@@ -165,6 +174,7 @@ def create_app(
         audit,
         auth,
         customers,
+        goals,
         llm,
         market,
         optimization,
@@ -191,6 +201,7 @@ def create_app(
         audit,
         suitability,
         optimization,
+        goals,
     ):
         app.include_router(module.router, prefix=api_prefix)
     app.include_router(system.api_router, prefix=api_prefix)
