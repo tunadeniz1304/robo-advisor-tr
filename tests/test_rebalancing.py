@@ -46,16 +46,15 @@ def test_all_cash_is_invested_into_bands() -> None:
     assert all(o["side"] == "BUY" for o in plan.orders)
     policy = get_policy()
     for sym, tgt in TARGET.items():
-        band = policy.band_for(
-            __import__("services.market_data.universe", fromlist=["x"]).asset_class_of(sym)
-        )
+        band = policy.drift_band(tgt)
         assert abs(plan.after_weights.get(sym, 0.0) - tgt) <= band + 1e-6
     assert plan.after_weights[CASH] <= policy.rebalance["max_cash_weight"]
 
 
 def test_cash_first_no_sells_when_new_cash_fixes_drift() -> None:
     q = _at_target()
-    q["THYAO.IS"] *= 1.6  # hisse fazla kilolu ama bant içinde
+    # v2: sınıf bandı mutlak %3 → hisse fazla kilolu ama hem enstrüman hem sınıf bandında.
+    q["THYAO.IS"] *= 1.4
     state = PortfolioState(cash=20_000.0, quantities=q, prices=PRICES)
     plan = plan_trades(state, TARGET)
     assert plan.orders and all(o["side"] == "BUY" for o in plan.orders)

@@ -22,7 +22,9 @@ def test_policy_loads_and_is_consistent() -> None:
     ]
     assert risky == sorted(risky)
     assert policy.risk_label(1) == "Çok Muhafazakâr" and policy.risk_label(10) == "Çok Agresif"
-    assert policy.band_for("bist_hisse") > policy.band_for("para_piyasasi")
+    # v2: göreli bant — küçük pozisyonlar dar, büyük pozisyonlar tavanlı bant alır.
+    assert policy.drift_band(0.02) < policy.drift_band(0.10) < policy.drift_band(0.50)
+    assert policy.drift_band(0.50) == policy.rebalance["drift_band"]["abs_cap"]
     assert policy.withholding_rate("para_piyasasi", 10) >= 0
     assert policy.max_instrument_risk[1] < policy.max_instrument_risk[10]
 
