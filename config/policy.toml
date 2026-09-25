@@ -134,7 +134,7 @@ bist_hisse = 0.40
 [optimization]
 default_method = "hrp"
 # Model portföy etrafında varlık sınıfı bandı (±)
-class_band = 0.10
+class_band = 0.05
 # Tek enstrüman üst sınırı
 max_single_instrument = 0.30
 # Getiri tahmini için en az geçmiş (yıl)
@@ -191,6 +191,7 @@ split_tolerance = 0.03  # fiyat oranı 1/k veya k'ya (k=2..10) bu kadar yakınsa
 min_sigma = 0.0001      # sabit getirili serilerde taban günlük oynaklık
 stale_days = 7          # son gözlem bundan eskiyse "bayat" uyarısı
 stale_error_days = 45   # bundan eskiyse hata
+recent_days = 90        # daha eski uç hareketler "bilgi" düzeyinde raporlanır
 
 # --- İşlem maliyetleri (bilgi amaçlı) ----------------------------------------------------------
 [costs]
