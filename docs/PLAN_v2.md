@@ -48,7 +48,7 @@ testlerde ağ yasağı, `dev-only` JWT sırrının prod'da reddi).
 | V4 | Prod sırları, `/metrics` ve `/llm/status` koruması, Redis kilit + rate limit, Postgres checkpointer, rol tazeleme, 404, mypy sıkılaştırma | çoklu instance testi yeşil |
 | V5 | ES modülleri, erişilebilirlik, Playwright E2E, rozetler | E2E yeşil (veya CI'da) |
 | V6 | Risk ayrıştırma/faktörler, vergi lotu motoru, model portföy walk-forward takibi | ilgili testler yeşil |
-| V7 | README "Sınırlamalar", `ssyz` temizliği, mevzuat doğrulaması, FINAL_REPORT_v2 | `git grep ssyz` boş |
+| V7 | README "Sınırlamalar", iç LLM adresinin temizliği, mevzuat doğrulaması, FINAL_REPORT_v2 | iç LLM adresi hiçbir takip edilen dosyada yok |
 | V8 | Bağımsız denetim döngüsü (en fazla 3 tur) | ≥ 9/10 veya gerekçeli bulgular |
 
 ## Kasıtlı davranış değişiklikleri
