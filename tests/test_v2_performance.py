@@ -257,3 +257,12 @@ def test_summary_annualizes_multi_year_consistently() -> None:
     assert out["twr_annualized"] == pytest.approx((1 + out["twr_cumulative"]) ** (1 / years) - 1)
     assert out["tear_sheet"]["cagr"] == pytest.approx(out["twr_annualized"])
     assert out["mwr_annualized"] == pytest.approx(out["twr_annualized"], abs=1e-3)  # akış yok
+
+
+def test_value_curve_starts_when_funded(client: TestClient) -> None:
+    cid = create_customer(client, email="egri@example.com")["id"]
+    pid = create_portfolio(client, cid, cash=300_000.0, holdings={})["id"]
+    prop = client.post(f"/api/v1/advisor/rebalance/{pid}", params={"customer_id": cid}).json()
+    client.post(f"/api/v1/proposals/{prop['proposal_id']}/approve")
+    curve = client.get(f"/api/v1/portfolios/{pid}/report").json()["value_curve"]
+    assert curve and all(point["value"] > 0 for point in curve)

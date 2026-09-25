@@ -88,7 +88,10 @@ async def portfolio_report(
     summary = summarize(
         values, flows, risk_free_rate=market.risk_free_rate(), benchmark=bench_series
     )
-    step = max(1, len(values) // VALUE_CURVE_POINTS)
+    # Fonlanmadan önceki (değeri ~0) günler eğride gösterilmez.
+    funded = values[values > max(1.0, float(values.abs().max()) * 1e-6)]
+    curve = values.loc[funded.index[0] :] if not funded.empty else values
+    step = max(1, len(curve) // VALUE_CURVE_POINTS)
     return {
         "portfolio_id": portfolio.id,
         **summary,
@@ -96,7 +99,7 @@ async def portfolio_report(
         "inflation_yoy": market.inflation_yoy(),
         "value_curve": [
             {"date": d.date().isoformat(), "value": round(float(v), 2)}
-            for d, v in values.iloc[::step].items()
+            for d, v in curve.iloc[::step].items()
         ],
     }
 
