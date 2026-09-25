@@ -15,6 +15,7 @@ snapshots + TTL cache used by the agents) with panel-level helpers:
 from __future__ import annotations
 
 import asyncio
+import math
 from typing import Any
 
 import numpy as np
@@ -134,15 +135,35 @@ class MarketDataService(MarketService):
         except Exception:  # noqa: BLE001
             return pd.DataFrame()
 
-    def risk_free_rate(self) -> float:
-        """Latest annual TL policy rate (fallback: policy file)."""
+    @staticmethod
+    def effective_rate(quoted: float) -> float:
+        """Convert a quoted simple annual rate to its compounded annual yield.
+
+        The TCMB policy rate is a simple (non-compounded) annual rate, while
+        tear-sheet returns compound. A cash fund accruing the rate every day
+        earns ``(1 + r/n)^n - 1`` a year; using the quoted rate as the
+        risk-free leg would inflate every Sharpe ratio by several points.
+        """
+        n = float(get_policy().optimization.get("rf_compounding_per_year", 365))
+        return float((1.0 + quoted / n) ** n - 1.0)
+
+    def policy_rate(self) -> float:
+        """Latest quoted (simple) annual TL policy rate (fallback: policy file)."""
         macro = self.macro()
         if "POLICY_RATE" in macro.columns and not macro["POLICY_RATE"].dropna().empty:
             return float(macro["POLICY_RATE"].dropna().iloc[-1])
         return float(get_policy().optimization.get("fallback_risk_free_rate", 0.35))
 
+    def risk_free_rate(self) -> float:
+        """Latest risk-free rate as a compounded annual yield."""
+        return self.effective_rate(self.policy_rate())
+
     def risk_free_rate_at(self, when: pd.Timestamp) -> float:
-        """Policy rate in force on ``when`` (no look-ahead for backtests)."""
+        """Compounded risk-free yield in force on ``when`` (no look-ahead)."""
+        return self.effective_rate(self.policy_rate_at(when))
+
+    def policy_rate_at(self, when: pd.Timestamp) -> float:
+        """Quoted policy rate in force on ``when`` (no look-ahead for backtests)."""
         macro = self.macro()
         if "POLICY_RATE" in macro.columns:
             series = macro["POLICY_RATE"].dropna().sort_index()
@@ -154,11 +175,17 @@ class MarketDataService(MarketService):
         return float(get_policy().optimization.get("fallback_risk_free_rate", 0.35))
 
     def mean_risk_free_rate(self, start: pd.Timestamp, end: pd.Timestamp) -> float:
-        """Average policy rate over ``[start, end]`` (test-period Sharpe)."""
+        """Compounded risk-free yield over ``[start, end]`` (test-period Sharpe).
+
+        The daily accrual is averaged in log space, i.e. the result is the
+        annual yield of a cash position rolled at the policy rate in force
+        each month.
+        """
         days = pd.date_range(start, end, freq="MS")
         if len(days) == 0:
             return self.risk_free_rate_at(end)
-        return float(np.mean([self.risk_free_rate_at(d) for d in days]))
+        logs = [math.log1p(self.risk_free_rate_at(d)) for d in days]
+        return float(math.expm1(float(np.mean(logs))))
 
     def inflation_yoy(self) -> float:
         """Latest year-on-year TÜFE inflation."""

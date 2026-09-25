@@ -105,7 +105,7 @@ async def market_commentary(request: Request, user: UserDep) -> dict[str, Any]:
             if s in rets
         },
         "makro": {
-            "politika_faizi": round(c.market.risk_free_rate(), 4),
+            "politika_faizi": round(c.market.policy_rate(), 4),
             "tufe_yillik": round(c.market.inflation_yoy(), 4),
         },
         "rejim": {"etiket": reg.get("label")},
@@ -144,7 +144,7 @@ async def letter(
             for s in rets.columns
         },
         "makro": {
-            "politika_faizi": round(c.market.risk_free_rate(), 4),
+            "politika_faizi": round(c.market.policy_rate(), 4),
             "tufe_yillik": round(c.market.inflation_yoy(), 4),
         },
     }

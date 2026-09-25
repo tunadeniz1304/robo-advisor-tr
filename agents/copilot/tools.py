@@ -101,7 +101,7 @@ async def execute_tool(name: str, args: dict[str, Any], ctx: CopilotContext) -> 
         return {
             "piyasa": {s: {"getiri_1_ay": round(float(rets[s].iloc[-1]), 4)} for s in rets.columns},
             "makro": {
-                "politika_faizi": round(c.market.risk_free_rate(), 4),
+                "politika_faizi": round(c.market.policy_rate(), 4),
                 "tufe_yillik": round(c.market.inflation_yoy(), 4),
             },
             "rejim": {"etiket": reg.get("label")},

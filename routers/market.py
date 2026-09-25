@@ -93,6 +93,7 @@ async def macro(
     frame = market.macro().tail(months)
     return {
         "risk_free_rate": market.risk_free_rate(),
+        "policy_rate": market.policy_rate(),
         "inflation_yoy": market.inflation_yoy(),
         "series": [
             {

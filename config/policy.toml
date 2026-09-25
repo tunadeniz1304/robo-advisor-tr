@@ -148,6 +148,8 @@ bl_risk_aversion = 2.5
 bl_tau = 0.05
 # Risksiz faiz yoksa kullanılacak son çare (yıllık)
 fallback_risk_free_rate = 0.35
+# Politika faizi basit yıllık orandır; Sharpe için günlük bileşik yıllık getiriye çevrilir
+rf_compounding_per_year = 365
 
 # --- Yeniden dengeleme ---------------------------------------------------------------------
 [rebalance]
@@ -156,7 +158,7 @@ min_trade_amount = 250.0      # TL
 proposal_ttl_hours = 24
 # Onay anında fiyat bu orandan fazla değiştiyse öneri süresi dolar
 price_tolerance = 0.03
-lot_method = "HIFO"           # FIFO | HIFO
+lot_method = "FIFO"           # FIFO | HIFO (stopaj matrahında FIFO esas alınır)
 # Rebalance sonrası izin verilen en yüksek atıl nakit ağırlığı
 max_cash_weight = 0.02
 # Min-devir LP'sinde satışların ek maliyet ağırlığı (satışı azaltır)
