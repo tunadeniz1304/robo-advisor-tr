@@ -109,6 +109,21 @@ def test_backtest_api_uses_walk_forward_for_optimizer(settings) -> None:  # noqa
     assert "benchmarks" in body
     first = body["weights_history"][0]["date"]
     assert first > body["data_start"]  # ilk ağırlık, tahmin penceresi dolduktan sonra
+    # Denetim tur 3: yanıt gerçekleşen test süresini ve testteki vekil serileri bildirir.
+    span = (pd.Timestamp(body["test_end"]) - pd.Timestamp(body["test_start"])).days / 365.25
+    assert body["years_requested"] == 5
+    assert body["years"] == pytest.approx(span, abs=0.01) and body["years"] <= 5
+    assert body["proxy_in_test"] == []  # sahte veri kaynağında vekil yok
+
+
+def test_proxy_segments_inside_a_test_period_are_reported() -> None:
+    from routers.reports import _proxy_until
+    from services.market_data.service import MarketDataService
+    from services.market_data.sources import ChainedSource, SnapshotSource
+
+    market = MarketDataService(ChainedSource(None, SnapshotSource(), mode="snapshot"))
+    assert _proxy_until(market, "TL_PPF") is not None
+    assert _proxy_until(market, "XU100.IS") is None
 
 
 @pytest.mark.parametrize("window", [0, -5])

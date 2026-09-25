@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,6 +17,14 @@ from services.analytics.walkforward import benchmark_report, trim_for_test, walk
 from services.market_data.universe import BENCHMARK_SYMBOL, model_symbol_weights
 from services.optimization.service import OptimizationRequest
 from services.suitability.service import effective_level
+
+
+def _proxy_until(market: Any, symbol: str) -> str | None:
+    """Last date of the documented proxy segment of ``symbol`` (if any)."""
+    info = market.snapshot_meta().get("series", {}).get(symbol, {})
+    until = info.get("proxy_until") if isinstance(info, dict) else None
+    return str(until) if until else None
+
 
 router = APIRouter(tags=["analytics"])
 
@@ -111,10 +120,18 @@ async def backtest(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        test_start = pd.Timestamp(result["test_start"])
+        proxied = [
+            s
+            for s in full
+            if (until := _proxy_until(market, s)) is not None and pd.Timestamp(until) >= test_start
+        ]
         return {
             "level": level,
             "method": req.method or policy.optimization.get("default_method"),
-            "years": body.years,
+            "years_requested": body.years,
+            "years": round((pd.Timestamp(result["test_end"]) - test_start).days / 365.25, 2),
+            "proxy_in_test": proxied,
             "excluded_short_history": short,
             "risk_free_rate": rf_test,
             **result,
