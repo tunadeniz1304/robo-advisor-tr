@@ -43,3 +43,7 @@ Thumbs.db
 # ===== Loglar =====
 *.log
 logs/
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm

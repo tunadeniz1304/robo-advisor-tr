@@ -57,12 +57,7 @@ async def rebalance_portfolio(
     service: AdvisorService = AdvisorServiceDep,
 ) -> AdvisorResponse:
     """Create a proposal through the agent graph; execution needs approval."""
-    try:
-        await load_portfolio_checked(session, user, portfolio_id)
-    except HTTPException as exc:
-        if exc.status_code == status.HTTP_404_NOT_FOUND:
-            raise HTTPException(status_code=422, detail=exc.detail) from exc
-        raise
+    await load_portfolio_checked(session, user, portfolio_id)  # yok / yabancı → 404
     from services.regime import cached_regime
 
     regime = await cached_regime(request.app.state.container)

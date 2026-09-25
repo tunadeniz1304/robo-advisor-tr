@@ -152,9 +152,10 @@ def test_customer_approves_own_proposal_only(client: TestClient) -> None:
     assert [p["customer_id"] for p in listed] == [reg["customer_id"]]
 
 
-def test_unknown_portfolio_is_422(client: TestClient) -> None:
+def test_unknown_portfolio_is_404(client: TestClient) -> None:
+    # v2: bilinmeyen ve yabancı portföy aynı yanıtı alır (404).
     assert (
-        client.post("/api/v1/advisor/rebalance/9999", params={"customer_id": 1}).status_code == 422
+        client.post("/api/v1/advisor/rebalance/9999", params={"customer_id": 1}).status_code == 404
     )
 
 

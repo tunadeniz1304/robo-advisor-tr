@@ -128,7 +128,7 @@ def test_customer_sees_only_own_data(client: TestClient) -> None:
         params={"customer_id": other["id"]},
         headers=h,
     )
-    assert rb.status_code == 422  # bu uçta bilinmeyen portföy 422; yabancı olan da aynı yanıtı alır
+    assert rb.status_code == 404
     # Müşteri silemez, nakit düzeltemez
     assert client.delete(f"/api/v1/customers/{own_cid}", headers=h).status_code == 403
     own_pf = client.get("/api/v1/portfolios", headers=h).json()[0]
