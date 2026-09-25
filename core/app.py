@@ -196,6 +196,7 @@ def create_app(
         runs,
         suitability,
         system,
+        tax,
         transactions,
     )
 
@@ -219,6 +220,7 @@ def create_app(
         reports,
         insights,
         copilot,
+        tax,
     ):
         app.include_router(module.router, prefix=api_prefix)
     app.include_router(system.api_router, prefix=api_prefix)
