@@ -68,13 +68,18 @@ async def consume_lots(
     quantity: Decimal,
     price: Decimal,
     method: str = "FIFO",
+    fees: Decimal = Decimal("0"),
 ) -> tuple[Decimal, list[dict[str, Any]]]:
     """Consume open lots for a sell and return ``(realised_pnl, consumed)``.
+
+    The sale's costs (commission + BSMV) are allocated pro rata to the lots
+    consumed, so the realised gain is net of them.
 
     Positions opened before lot tracking (no lots) are treated as having a
     cost equal to the sale price (zero realised gain).
     """
     remaining = to_qty(quantity)
+    cost_per_unit = fees / remaining if remaining > 0 else Decimal("0")
     realized = Decimal("0")
     consumed: list[dict[str, Any]] = []
     for lot in order_lots(await open_lots(session, portfolio_id, symbol), method):
@@ -82,7 +87,7 @@ async def consume_lots(
             break
         take = min(remaining, lot.quantity_open)
         lot.quantity_open = to_qty(lot.quantity_open - take)
-        gain = to_decimal((price - lot.unit_cost) * take)
+        gain = to_decimal((price - lot.unit_cost - cost_per_unit) * take)
         realized += gain
         consumed.append(
             {

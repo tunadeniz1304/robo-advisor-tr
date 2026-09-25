@@ -149,7 +149,7 @@ async def apply_trade(
             await add_lot(session, portfolio.id, symbol, qty, px, fee, executed_at)
         else:
             realized, consumed = await consume_lots(
-                session, portfolio.id, symbol, qty, px, method=lot_method
+                session, portfolio.id, symbol, qty, px, method=lot_method, fees=fee
             )
 
     logger.info(
