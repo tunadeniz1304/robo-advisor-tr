@@ -1,6 +1,6 @@
 [project]
 name = "otonom-finansal-danisman"
-version = "2.0.0"
+version = "2.1.0"
 description = "Dijital varlık yönetimi (robo-advisor) prototipi — TL varlıklar, açıklanabilir öneri"
 requires-python = ">=3.11"
 license = { text = "MIT" }

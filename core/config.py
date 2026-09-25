@@ -188,7 +188,7 @@ class Settings:
     """
 
     app_name: str = "Otonom Finansal Danışman"
-    version: str = "2.0.0"
+    version: str = "2.1.0"
     environment: str = "dev"
     api_v1_prefix: str = "/api/v1"
     database_url: str = "sqlite+aiosqlite:///./advisor.db"
@@ -347,7 +347,7 @@ class Settings:
         load_dotenv_file()
         return cls(
             app_name=_env_str("APP_NAME", "Otonom Finansal Danışman"),
-            version=_env_str("APP_VERSION", "2.0.0"),
+            version=_env_str("APP_VERSION", "2.1.0"),
             environment=_env_str("APP_ENV", "dev").lower(),
             api_v1_prefix=_env_str("API_V1_PREFIX", "/api/v1"),
             database_url=_env_str("DATABASE_URL", "sqlite+aiosqlite:///./advisor.db"),
