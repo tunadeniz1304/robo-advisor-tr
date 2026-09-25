@@ -85,7 +85,11 @@ class SimulatedBroker:
             tax = 0.0
             if side == "SELL":
                 est = self._tax.estimate_sale(
-                    symbol, qty, fill_price, await open_lots(session, portfolio.id, symbol)
+                    symbol,
+                    qty,
+                    fill_price,
+                    await open_lots(session, portfolio.id, symbol),
+                    fees=fees,
                 )
                 tax = est.tax
                 report.realized_gain += est.realized_gain

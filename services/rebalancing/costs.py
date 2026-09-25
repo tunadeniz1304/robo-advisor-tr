@@ -98,13 +98,17 @@ class TaxModel:
         lots: list[Any],
         method: str | None = None,
         now: datetime | None = None,
+        fees: float = 0.0,
     ) -> TaxEstimate:
         """Tax of selling ``quantity`` at ``price`` consuming ``lots``.
 
         Losses on one lot offset gains on another within the same sale; the
-        tax is never negative. Quantities without lots have zero gain.
+        tax is never negative. Quantities without lots have zero gain. The
+        sale's explicit ``fees`` are allocated pro rata, so the tax base is
+        the net gain — the same base the ledger books as realised P&L.
         """
         remaining = float(quantity)
+        fee_per_unit = float(fees) / remaining if remaining > 0 else 0.0
         tax = gain_total = 0.0
         used: list[dict[str, Any]] = []
         for lot in order_lots(list(lots), method or self.lot_method):
@@ -114,7 +118,7 @@ class TaxModel:
             take = min(remaining, open_qty)
             if take <= 0:
                 continue
-            gain = (float(price) - float(lot.unit_cost)) * take
+            gain = (float(price) - float(lot.unit_cost) - fee_per_unit) * take
             rate = self.rate(symbol, lot.acquired_at, now)
             gain_total += gain
             tax += gain * rate

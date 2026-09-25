@@ -56,7 +56,7 @@ from services.market_data.service import MarketDataService
 from services.optimization.estimators import expected_returns, ledoit_wolf
 from services.optimization.service import OptimizationRequest, OptimizationService, View
 from services.rebalancing.broker import SimulatedBroker
-from services.rebalancing.costs import TaxModel
+from services.rebalancing.costs import CostModel, TaxModel
 from services.rebalancing.engine import CASH, PortfolioState, plan_trades
 from services.suitability.service import effective_level
 from services.tax_lots import open_lots
@@ -276,6 +276,7 @@ class ProposalService:
 
         # Vergi tahmini (satışlar, lot bazlı)
         tax_model = TaxModel(self._p)
+        cost_model = CostModel(self._p)
         total_tax = 0.0
         async with session_factory() as session:
             for order in plan.orders:
@@ -286,6 +287,9 @@ class ProposalService:
                     order["quantity"],
                     order["price"],
                     await open_lots(session, portfolio_id, order["symbol"]),
+                    fees=cost_model.fees(
+                        order["symbol"], float(order["quantity"]) * float(order["price"])
+                    ),
                 )
                 order["tax"] = est.to_dict()
                 total_tax += est.tax
