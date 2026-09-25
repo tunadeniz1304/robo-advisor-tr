@@ -272,3 +272,35 @@ def test_mypy_config_is_strict() -> None:
     strict = [o for o in cfg.get("overrides", []) if o.get("disallow_untyped_defs") is True]
     modules = {m for o in strict for m in o["module"]}
     assert {"services.*", "core.*", "llm.*"} <= modules
+
+
+def test_checkpointer_uses_postgres_when_database_is_postgres(tmp_path: Path) -> None:
+    from agents.graph import is_postgres_url, postgres_dsn
+    from core.container import checkpoint_target
+
+    pg = make_settings(tmp_path, database_url="postgresql+asyncpg://u:p@db:5432/advisor")
+    assert checkpoint_target(pg) == "postgresql+asyncpg://u:p@db:5432/advisor"
+    assert is_postgres_url(checkpoint_target(pg) or "")
+    assert (
+        postgres_dsn("postgresql+asyncpg://u:p@db:5432/advisor")
+        == "postgresql://u:p@db:5432/advisor"
+    )
+    sqlite = make_settings(tmp_path, checkpoint_db=str(tmp_path / "cp.sqlite"))
+    assert checkpoint_target(sqlite) == str(tmp_path / "cp.sqlite")
+    assert not is_postgres_url(str(tmp_path / "cp.sqlite"))
+
+
+def test_redis_backend_requires_url(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match="REDIS_URL"):
+        create_app(make_settings(tmp_path, lock_backend="redis"), market_source=FakeMarketSource())
+
+
+def test_forwarded_for_is_ignored_unless_trusted(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, rate_limit_default="2/minute")
+    app = create_app(settings, market_source=FakeMarketSource())
+    with TestClient(app) as c:
+        codes = [
+            c.get("/api/v1/health", headers={"X-Forwarded-For": f"10.0.0.{i}"}).status_code
+            for i in range(3)
+        ]
+    assert codes == [200, 200, 429]  # sahte başlıkla limit aşılamaz
