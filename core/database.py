@@ -61,7 +61,7 @@ def create_engine_from_url(database_url: str) -> AsyncEngine:
         # CASCADE'in (ve diğer FK kurallarının) çalışması için her bağlantıda
         # PRAGMA foreign_keys=ON etkinleştirilmeli.
         @event.listens_for(engine.sync_engine, "connect")
-        def _enable_sqlite_fk(dbapi_conn, _record):  # noqa: ANN001
+        def _enable_sqlite_fk(dbapi_conn: Any, _record: Any) -> None:
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel
 
@@ -90,7 +90,7 @@ _DATA_BLOCK = re.compile(r"<data>\s*(.*?)\s*</data>", re.DOTALL)
 
 def schema_for(task: str) -> type[BaseModel]:
     """Return the output schema class of a task."""
-    return TASKS[task]["schema"]  # type: ignore[no-any-return]
+    return cast(type[BaseModel], TASKS[task]["schema"])
 
 
 def system_prompt(task: str) -> str:

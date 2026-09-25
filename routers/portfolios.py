@@ -71,7 +71,7 @@ async def list_portfolios(
 @router.get("/{portfolio_id}", response_model=PortfolioRead)
 async def get_portfolio(portfolio_id: int, session: SessionDep, user: UserDep) -> Portfolio:
     """Fetch a single portfolio by id."""
-    return await load_portfolio_checked(session, user, portfolio_id)  # type: ignore[no-any-return]
+    return await load_portfolio_checked(session, user, portfolio_id)
 
 
 @router.put("/{portfolio_id}", response_model=PortfolioRead)
@@ -104,7 +104,7 @@ async def update_portfolio(
         setattr(portfolio, field, value)
     await session.commit()
     await session.refresh(portfolio)
-    return portfolio  # type: ignore[no-any-return]
+    return portfolio
 
 
 @router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)

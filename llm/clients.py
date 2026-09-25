@@ -336,7 +336,7 @@ class AnthropicClient(LLMClient):
                 max_tokens=max_tokens or self._max_tokens,
                 temperature=self._temperature if temperature is None else temperature,
                 system=system,
-                messages=convo,  # type: ignore[arg-type]
+                messages=convo,  # type: ignore[arg-type]  # SDK expects TypedDicts; plain dicts are valid
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("anthropic_call_failed", error_type=type(exc).__name__)

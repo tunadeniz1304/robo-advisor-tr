@@ -6,7 +6,7 @@ TTL cache actually works across requests (bug #7).
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -68,7 +68,7 @@ class PerformanceOut(BaseModel):
 
 def market_of(request: Request) -> MarketDataService:
     """Shared market data service of the application container."""
-    return request.app.state.container.market  # type: ignore[no-any-return]
+    return cast(MarketDataService, request.app.state.container.market)
 
 
 def _held(portfolio: Portfolio) -> list[str]:

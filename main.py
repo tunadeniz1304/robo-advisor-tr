@@ -17,7 +17,7 @@ import sys
 # Windows cp1254 konsolunda Türkçe çıktıların çökmemesi için utf-8'e sabitle.
 for stream in (sys.stdout, sys.stderr):
     try:
-        stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # TextIO lacks it; real streams have it
     except AttributeError:  # pragma: no cover - bazı ortamlarda yok
         pass
 

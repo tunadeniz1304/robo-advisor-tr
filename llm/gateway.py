@@ -172,7 +172,7 @@ class LLMGateway:
         Returns:
             A :class:`GenerationResult`; never raises for provider issues.
         """
-        model_cls: type[T] = schema or schema_for(task)  # type: ignore[assignment]
+        model_cls: type[T] = schema or schema_for(task)  # type: ignore[assignment]  # schema registry is keyed by task, not by T
         safe_context = redact(context, names)
         messages = build_messages(task, safe_context)
 

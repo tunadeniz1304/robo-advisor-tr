@@ -65,7 +65,8 @@ async def health_v1(request: Request) -> dict[str, str]:
 @api_router.get("/data/quality", summary="Veri kalitesi (boşluk, sıçrama, bölünme, bayatlık)")
 async def data_quality(request: Request, user: UserDep) -> dict[str, Any]:
     """Quality checks of every served price series with its provenance."""
-    return await request.app.state.container.market.quality_report()  # type: ignore[no-any-return]
+    report: dict[str, Any] = await request.app.state.container.market.quality_report()
+    return report
 
 
 @api_router.get("/system/status", summary="Arayüz rozetleri: veri, veri kalitesi, AI modu")

@@ -231,7 +231,7 @@ async def seed_demo(container: Any) -> dict[str, Any]:
                         occurred_at=when.to_pydatetime(),
                     )
                 )
-                sym = max(persona.basket, key=persona.basket.get)  # type: ignore[arg-type]
+                sym = max(persona.basket, key=lambda s: persona.basket[s])
                 price = float(panel.loc[when, sym])
                 await apply_trade(
                     s,

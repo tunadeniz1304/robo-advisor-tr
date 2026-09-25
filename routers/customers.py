@@ -74,7 +74,7 @@ async def list_customers(
 @router.get("/{customer_id}", response_model=CustomerRead)
 async def get_customer(customer_id: int, session: SessionDep, user: UserDep) -> Customer:
     """Fetch a single customer by id."""
-    return await load_customer_checked(session, user, customer_id)  # type: ignore[no-any-return]
+    return await load_customer_checked(session, user, customer_id)
 
 
 @router.put("/{customer_id}", response_model=CustomerRead)
@@ -106,7 +106,7 @@ async def update_customer(
         customer_id=customer.id,
         payload={"fields": sorted(k for k in updates if k not in {"email", "monthly_income"})},
     )
-    return customer  # type: ignore[no-any-return]
+    return customer
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)

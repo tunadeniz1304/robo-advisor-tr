@@ -15,7 +15,7 @@ be probed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -23,6 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from core.security import TokenError, decode_token
+
+if TYPE_CHECKING:
+    from models import Customer, Portfolio
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -130,7 +133,9 @@ def can_access_customer(user: CurrentUser, customer: Any) -> bool:
     return user.customer_id is not None and user.customer_id == customer.id
 
 
-async def load_customer_checked(session: AsyncSession, user: CurrentUser, customer_id: int) -> Any:
+async def load_customer_checked(
+    session: AsyncSession, user: CurrentUser, customer_id: int
+) -> Customer:
     """Fetch a customer and enforce access (404 for missing or foreign)."""
     from models import Customer
 
@@ -142,7 +147,7 @@ async def load_customer_checked(session: AsyncSession, user: CurrentUser, custom
 
 async def load_portfolio_checked(
     session: AsyncSession, user: CurrentUser, portfolio_id: int
-) -> Any:
+) -> Portfolio:
     """Fetch a portfolio and enforce access through its owner (404 for missing or foreign)."""
     from models import Customer, Portfolio
 

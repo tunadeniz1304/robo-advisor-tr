@@ -12,7 +12,7 @@ the policy) applied by the optimiser between defensive and BIST classes.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -114,7 +114,7 @@ async def cached_regime(container: Any, ttl_seconds: float = 3600.0) -> dict[str
 
     hit = container.extras.get("regime")
     if hit is not None and time.monotonic() - hit[0] < ttl_seconds:
-        return hit[1]  # type: ignore[no-any-return]
+        return cast(dict[str, Any], hit[1])
     try:
         value = await detect_regime(container.market)
     except Exception as exc:  # noqa: BLE001 - rejim yoksa eğilim uygulanmaz

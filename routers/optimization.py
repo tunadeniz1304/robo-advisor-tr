@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -32,7 +32,7 @@ class OptimizeBody(BaseModel):
 
 
 def optimizer_of(request: Request) -> OptimizationService:
-    return request.app.state.container.optimizer  # type: ignore[no-any-return]
+    return cast(OptimizationService, request.app.state.container.optimizer)
 
 
 async def approved_views(session: SessionDep) -> list[View]:

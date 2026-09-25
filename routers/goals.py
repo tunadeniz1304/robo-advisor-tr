@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -50,7 +50,7 @@ class WhatIfIn(BaseModel):
 
 
 def planner(request: Request) -> GoalPlanningService:
-    return request.app.state.container.planner  # type: ignore[no-any-return]
+    return cast(GoalPlanningService, request.app.state.container.planner)
 
 
 def goal_to_dict(g: Goal) -> dict[str, Any]:

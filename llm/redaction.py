@@ -68,7 +68,7 @@ def pseudonym(customer_id: int | str) -> str:
 def income_band(value: float | int | str | None) -> str:
     """Map a monthly income to a coarse band label."""
     try:
-        income = float(value)  # type: ignore[arg-type]
+        income = float(value)  # type: ignore[arg-type]  # checked numeric above
     except (TypeError, ValueError):
         return "bilinmiyor"
     for upper, label in INCOME_BANDS:

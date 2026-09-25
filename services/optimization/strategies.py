@@ -18,6 +18,7 @@ bounds per instrument and linear lower/upper bounds on asset-class sums
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -134,7 +135,12 @@ def _clean(w: np.ndarray) -> np.ndarray:
     return w / s if s > _EPS else w
 
 
-def _solve(objective, x0: np.ndarray, cons: Constraints, jac=None) -> np.ndarray:  # noqa: ANN001
+def _solve(
+    objective: Callable[[np.ndarray], float],
+    x0: np.ndarray,
+    cons: Constraints,
+    jac: Callable[[np.ndarray], np.ndarray] | None = None,
+) -> np.ndarray:
     res = minimize(
         objective,
         x0,

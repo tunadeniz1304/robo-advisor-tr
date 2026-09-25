@@ -40,7 +40,7 @@ if str(ROOT) not in sys.path:
 
 for stream in (sys.stdout, sys.stderr):
     try:
-        stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # TextIO lacks it; real streams have it
     except AttributeError:  # pragma: no cover
         pass
 

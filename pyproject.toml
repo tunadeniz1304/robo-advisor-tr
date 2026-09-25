@@ -1,7 +1,7 @@
 [project]
 name = "otonom-finansal-danisman"
 version = "2.0.0"
-description = "Kurumsal seviyede dijital varlık yönetimi (robo-advisor) platformu"
+description = "Dijital varlık yönetimi (robo-advisor) prototipi — TL varlıklar, açıklanabilir öneri"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 
@@ -29,10 +29,14 @@ python_version = "3.11"
 ignore_missing_imports = true
 warn_unused_configs = true
 no_implicit_optional = true
-check_untyped_defs = false
+check_untyped_defs = true
 disallow_untyped_defs = false
 follow_imports = "silent"
 exclude = ["alembic/", "build/", "frontend/", "data/"]
+
+[[tool.mypy.overrides]]
+module = ["services.*", "core.*", "llm.*"]
+disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = ["tests.*"]

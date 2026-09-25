@@ -107,13 +107,13 @@ async def build_rebalance_graph(
 ) -> AdvisorGraph:
     """Compile the workflow with a durable (SQLite) or in-memory checkpointer."""
     graph = StateGraph(RebalanceState)
-    graph.add_node("market", MarketAgent(market_service).node())  # type: ignore[call-overload,arg-type]
-    graph.add_node("suitability", RiskAgent().node())  # type: ignore[call-overload,arg-type]
-    graph.add_node("optimize", OptimizerAgent(optimizer, proposals).node())  # type: ignore[call-overload,arg-type]
-    graph.add_node("propose", ProposalAgent(proposals).node())  # type: ignore[call-overload,arg-type]
-    graph.add_node("approval", approval_node)  # type: ignore[call-overload,arg-type]
-    graph.add_node("execute", ExecutionAgent(proposals).node())  # type: ignore[call-overload,arg-type]
-    graph.add_node("report", report_node)  # type: ignore[call-overload,arg-type]
+    graph.add_node("market", MarketAgent(market_service).node())  # type: ignore[call-overload,arg-type]  # LangGraph node stubs are too narrow
+    graph.add_node("suitability", RiskAgent().node())  # type: ignore[call-overload,arg-type]  # LangGraph node stubs are too narrow
+    graph.add_node("optimize", OptimizerAgent(optimizer, proposals).node())  # type: ignore[call-overload,arg-type]  # LangGraph node stubs are too narrow
+    graph.add_node("propose", ProposalAgent(proposals).node())  # type: ignore[call-overload,arg-type]  # LangGraph node stubs are too narrow
+    graph.add_node("approval", approval_node)  # type: ignore[call-overload,arg-type]  # LangGraph node stubs are too narrow
+    graph.add_node("execute", ExecutionAgent(proposals).node())  # type: ignore[call-overload,arg-type]  # LangGraph node stubs are too narrow
+    graph.add_node("report", report_node)  # type: ignore[call-overload,arg-type]  # LangGraph node stubs are too narrow
 
     graph.add_edge(START, "market")
     graph.add_conditional_edges("market", _route("suitability"), ["suitability", END])

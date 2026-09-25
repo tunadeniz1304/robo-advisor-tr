@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/market", tags=["market"])
 
 
 def _market(request: Request) -> MarketDataService:
-    return request.app.state.container.market  # type: ignore[no-any-return]
+    return cast(MarketDataService, request.app.state.container.market)
 
 
 @router.get("/status", summary="Veri kaynağı durumu (Canlı / Önbellek)")

@@ -92,7 +92,8 @@ class SnapshotSource:
     def meta(self) -> dict[str, Any]:
         path = self._dir / META_FILE
         if path.is_file():
-            return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+            meta: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+            return meta
         return {}
 
     async def download_history(self, symbols: list[str]) -> dict[str, pd.DataFrame]:

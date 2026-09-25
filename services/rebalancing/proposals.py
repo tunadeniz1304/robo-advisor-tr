@@ -631,7 +631,7 @@ class ProposalService:
         proposal = await self.get(proposal_id)
         async with self._lock(proposal.portfolio_id):
             async with session_factory() as session:
-                proposal = await session.get(RebalanceProposal, proposal_id)  # type: ignore[assignment]
+                proposal = await session.get(RebalanceProposal, proposal_id)  # type: ignore[assignment]  # re-read inside the lock; None handled below
                 assert proposal is not None
                 if proposal.status == PROPOSAL_EXECUTED:
                     return proposal

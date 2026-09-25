@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -30,7 +30,7 @@ router = APIRouter(tags=["advisor"])
 
 def get_advisor_service(request: Request) -> AdvisorService:
     """FastAPI dependency returning the shared :class:`AdvisorService`."""
-    return request.app.state.container.advisor  # type: ignore[no-any-return]
+    return cast(AdvisorService, request.app.state.container.advisor)
 
 
 AdvisorServiceDep = Depends(get_advisor_service)
