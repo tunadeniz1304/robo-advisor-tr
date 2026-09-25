@@ -7,128 +7,316 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/assets/app.css">
   <script src="/assets/vendor/chart.umd.min.js" defer></script>
-  <script src="/assets/app.js" type="module"></script>
+  <script src="/assets/js/main.js" type="module"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main">İçeriğe geç</a>
   <header class="topbar">
-    <div class="brand"><span class="logo" aria-hidden="true">OF</span><span>Otonom Finansal Danışman</span></div>
-    <div class="badges">
-      <span id="badge-ai" class="badge" title="LLM modu">AI: …</span>
-      <span id="badge-data" class="badge" title="Veri kaynağı">Veri: …</span>
-      <button id="btn-theme" class="btn ghost" type="button" aria-label="Tema değiştir">◐</button>
+    <div class="brand">
+      <span class="logo" aria-hidden="true">OF</span>
+      <span>Otonom Finansal Danışman</span>
+    </div>
+    <div class="badges" aria-label="Sistem durumu">
+      <button id="badge-data" class="badge hidden" type="button" data-goto="data">Veri: …</button>
+      <button id="badge-quality" class="badge hidden" type="button" data-goto="data">Veri kalitesi: …</button>
+      <span id="badge-ai" class="badge hidden">AI: …</span>
+      <span id="user-name" class="muted"></span>
+      <button id="btn-theme" class="btn ghost" type="button" aria-label="Koyu tema" aria-pressed="false">◐</button>
       <button id="btn-logout" class="btn ghost hidden" type="button">Çıkış</button>
     </div>
   </header>
 
   <nav id="nav" class="nav hidden" aria-label="Ana menü">
-    <button data-view="dashboard" class="active">Panel</button>
-    <button data-view="onboarding">Risk profili</button>
-    <button data-view="goals">Hedefler</button>
-    <button data-view="rebalance">Yeniden dengeleme</button>
-    <button data-view="analytics">Analitik</button>
-    <button data-view="stress">Stres lab</button>
-    <button data-view="copilot">Copilot</button>
-    <button data-view="advisor" class="staff-only hidden">Danışman paneli</button>
+    <button type="button" data-view="dashboard" class="active" aria-current="page">Panel</button>
+    <button type="button" data-view="onboarding">Risk profili</button>
+    <button type="button" data-view="goals">Hedefler</button>
+    <button type="button" data-view="rebalance">Yeniden dengeleme</button>
+    <button type="button" data-view="analytics">Analitik</button>
+    <button type="button" data-view="risk">Risk kaynakları</button>
+    <button type="button" data-view="stress">Stres lab</button>
+    <button type="button" data-view="tax">Vergi</button>
+    <button type="button" data-view="models">Model portföyler</button>
+    <button type="button" data-view="copilot">Copilot</button>
+    <button type="button" data-view="data">Veri kalitesi</button>
+    <button type="button" data-view="advisor" class="staff-only hidden">Danışman paneli</button>
   </nav>
 
-  <main id="main">
-    <section id="view-login" class="card narrow">
-      <h1>Giriş</h1>
+  <div id="app-status" class="status-bar" role="status" aria-live="polite"></div>
+
+  <main id="main" tabindex="-1">
+    <section id="view-login" class="card narrow" aria-labelledby="login-title">
+      <h1 id="login-title">Giriş</h1>
       <form id="login-form">
-        <label>Kullanıcı adı <input name="username" autocomplete="username" required value="demo.genc"></label>
-        <label>Şifre <input name="password" type="password" autocomplete="current-password" required value="Demo!2345"></label>
+        <label>Kullanıcı adı
+          <input name="username" autocomplete="username" required value="demo.genc">
+        </label>
+        <label>Şifre
+          <input name="password" type="password" autocomplete="current-password" required value="Demo!2345">
+        </label>
         <button class="btn primary" type="submit">Giriş yap</button>
         <p class="muted">Demo: demo.genc / demo.ev / demo.emekli (Demo!2345) · danisman (Danisman!2345) · admin (Admin!2345)</p>
         <p id="login-error" class="error" role="alert"></p>
       </form>
     </section>
 
-    <section id="view-dashboard" class="view hidden">
-      <div class="customer-picker staff-only hidden"><label>Müşteri <select id="customer-select"></select></label></div>
+    <section id="view-dashboard" class="view hidden" aria-labelledby="dash-title">
+      <h1 id="dash-title" class="sr-only">Panel</h1>
+      <div class="customer-picker staff-only hidden">
+        <label>Müşteri <select id="customer-select"></select></label>
+      </div>
       <div class="grid kpis">
         <div class="card kpi"><span>Net değer</span><strong id="kpi-value">–</strong></div>
         <div class="card kpi"><span>Nakit</span><strong id="kpi-cash">–</strong></div>
-        <div class="card kpi"><span>TWR (kümülatif)</span><strong id="kpi-twr">–</strong></div>
+        <div class="card kpi">
+          <span>TWR (kümülatif)</span><strong id="kpi-twr">–</strong>
+          <small id="kpi-twr-period" class="muted"></small>
+        </div>
         <div class="card kpi"><span>Risk seviyesi</span><strong id="kpi-level">–</strong></div>
       </div>
       <div class="grid two">
-        <div class="card"><h2>Varlık dağılımı</h2><canvas id="chart-allocation" height="220"></canvas></div>
+        <div class="card">
+          <h2>Varlık dağılımı</h2>
+          <canvas id="chart-allocation" height="220" role="img" aria-label="Varlık dağılımı halka grafiği" data-table="tbl-allocation"></canvas>
+          <details class="chart-data"><summary>Grafik verisi (tablo)</summary>
+            <table id="tbl-allocation"><caption>Varlık dağılımı</caption></table>
+          </details>
+        </div>
         <div class="card"><h2>Hedef ilerlemesi</h2><div id="goal-rings" class="rings"></div></div>
       </div>
       <div class="card"><h2>Bildirimler</h2><ul id="nudges" class="list"></ul></div>
       <div class="card"><h2>Piyasa yorumu</h2><div id="commentary" class="prose">Yükleniyor…</div></div>
     </section>
 
-    <section id="view-onboarding" class="view hidden">
-      <div class="card"><h2>SPK uygunluk testi</h2>
-        <div class="progress"><div id="q-progress"></div></div>
+    <section id="view-onboarding" class="view hidden" aria-labelledby="q-title">
+      <div class="card">
+        <h2 id="q-title">SPK uygunluk testi</h2>
+        <div class="progress" role="progressbar" aria-label="Anket ilerlemesi" aria-valuemin="1" aria-valuenow="1" aria-valuemax="1"><div id="q-progress"></div></div>
         <div id="q-body"></div>
-        <div class="actions"><button id="q-prev" class="btn" type="button">Geri</button><button id="q-next" class="btn primary" type="button">İleri</button></div>
-        <div id="q-result" class="prose"></div>
+        <div class="actions">
+          <button id="q-prev" class="btn" type="button">Geri</button>
+          <button id="q-next" class="btn primary" type="button">İleri</button>
+        </div>
+        <div id="q-result" class="prose" aria-live="polite"></div>
       </div>
     </section>
 
-    <section id="view-goals" class="view hidden">
-      <div class="card"><h2>Hedefler</h2><ul id="goal-list" class="list"></ul>
-        <form id="goal-form" class="inline-form">
-          <select name="goal_type"><option value="emeklilik">Emeklilik</option><option value="ev">Ev</option><option value="egitim">Eğitim</option><option value="acil_durum">Acil durum</option><option value="diger">Diğer</option></select>
-          <input name="name" placeholder="Ad" required>
-          <input name="target_amount_real" type="number" placeholder="Hedef (bugünkü TL)" required>
-          <input name="horizon_years" type="number" step="0.5" placeholder="Vade (yıl)" required>
-          <input name="initial_amount" type="number" placeholder="Başlangıç">
-          <input name="monthly_contribution" type="number" placeholder="Aylık katkı">
+    <section id="view-goals" class="view hidden" aria-labelledby="goals-title">
+      <div class="card">
+        <h2 id="goals-title">Hedefler</h2>
+        <ul id="goal-list" class="list"></ul>
+        <form id="goal-form" class="inline-form" aria-label="Yeni hedef">
+          <label>Hedef türü
+            <select name="goal_type">
+              <option value="emeklilik">Emeklilik</option>
+              <option value="ev">Ev</option>
+              <option value="egitim">Eğitim</option>
+              <option value="acil_durum">Acil durum</option>
+              <option value="diger">Diğer</option>
+            </select>
+          </label>
+          <label>Ad <input name="name" required></label>
+          <label>Hedef (bugünkü TL) <input name="target_amount_real" type="number" min="1" required></label>
+          <label>Vade (yıl) <input name="horizon_years" type="number" step="0.5" min="0.5" required></label>
+          <label>Başlangıç (TL) <input name="initial_amount" type="number" min="0"></label>
+          <label>Aylık katkı (TL) <input name="monthly_contribution" type="number" min="0"></label>
           <button class="btn primary" type="submit">Ekle</button>
         </form>
       </div>
-      <div class="card"><h2 id="goal-title">Simülasyon</h2>
+      <div class="card">
+        <h2 id="goal-title">Simülasyon</h2>
         <div id="goal-summary" class="prose"></div>
-        <canvas id="chart-fan" height="240"></canvas>
+        <canvas id="chart-fan" height="240" role="img" aria-label="Hedef servet yelpazesi grafiği" data-table="tbl-fan"></canvas>
+        <details class="chart-data"><summary>Grafik verisi (tablo)</summary>
+          <table id="tbl-fan"><caption>Servet yelpazesi (P10 / P50 / P90)</caption></table>
+        </details>
         <div class="sliders">
           <label>Vade +/- yıl <input id="wi-horizon" type="range" min="-5" max="10" step="1" value="0"><output id="wi-horizon-o">0</output></label>
           <label>Katkı çarpanı <input id="wi-contrib" type="range" min="0.5" max="2" step="0.1" value="1"><output id="wi-contrib-o">1</output></label>
           <label>Risk seviyesi farkı <input id="wi-level" type="range" min="-3" max="3" step="1" value="0"><output id="wi-level-o">0</output></label>
         </div>
-        <div id="whatif-result" class="prose"></div>
+        <div id="whatif-result" class="prose" aria-live="polite"></div>
       </div>
     </section>
 
-    <section id="view-rebalance" class="view hidden">
-      <div class="card"><h2>Yeniden dengeleme önizleme</h2>
-        <div class="actions"><select id="opt-method"><option value="">Varsayılan (HRP)</option><option value="black_litterman">Black-Litterman</option><option value="min_cvar">Min-CVaR</option><option value="risk_parity">Risk paritesi</option><option value="mean_variance">Ortalama-varyans</option></select>
-          <button id="btn-propose" class="btn primary" type="button">Öneri oluştur</button></div>
+    <section id="view-rebalance" class="view hidden" aria-labelledby="rb-title">
+      <div class="card">
+        <h2 id="rb-title">Yeniden dengeleme önizleme</h2>
+        <div class="actions">
+          <label>Optimizasyon yöntemi
+            <select id="opt-method" data-methods="Varsayılan yöntem"><option value="">Varsayılan yöntem</option></select>
+          </label>
+          <button id="btn-propose" class="btn primary" type="button">Öneri oluştur</button>
+        </div>
         <div id="proposal"></div>
       </div>
     </section>
 
-    <section id="view-analytics" class="view hidden">
-      <div class="card"><h2>Performans (tear sheet)</h2><div id="tearsheet" class="table-wrap"></div><canvas id="chart-value" height="200"></canvas></div>
-      <div class="card"><h2>Backtest: rebalance politikaları</h2><button id="btn-backtest" class="btn" type="button">Çalıştır</button><div id="backtest" class="table-wrap"></div><canvas id="chart-backtest" height="200"></canvas></div>
-    </section>
-
-    <section id="view-stress" class="view hidden">
-      <div class="card"><h2>Stres laboratuvarı</h2>
-        <div class="actions"><select id="stress-scenario"></select><button id="btn-stress" class="btn primary" type="button">Uygula</button></div>
-        <div class="inline-form"><label>BIST <input id="sc-bist" type="number" step="0.05" value="0"></label><label>USDTRY <input id="sc-usd" type="number" step="0.05" value="0"></label><label>Altın <input id="sc-gold" type="number" step="0.05" value="0"></label><label>Faiz <input id="sc-rate" type="number" step="0.01" value="0"></label><button id="btn-stress-custom" class="btn" type="button">Özel senaryo</button></div>
-        <div id="stress-result"></div><canvas id="chart-stress" height="200"></canvas>
+    <section id="view-analytics" class="view hidden" aria-labelledby="an-title">
+      <div class="card">
+        <h2 id="an-title">Performans (tear sheet)</h2>
+        <div id="tearsheet" class="table-wrap"></div>
+        <canvas id="chart-value" height="200" role="img" aria-label="Portföy değeri çizgi grafiği" data-table="tbl-value"></canvas>
+        <details class="chart-data"><summary>Grafik verisi (tablo)</summary>
+          <table id="tbl-value"><caption>Portföy değeri</caption></table>
+        </details>
+      </div>
+      <div class="card">
+        <h2>Backtest</h2>
+        <div class="actions">
+          <label>Tür
+            <select id="bt-mode">
+              <option value="fixed">Sabit hedef (rebalance politikaları)</option>
+              <option value="walk_forward">Walk-forward (optimizasyon, ileriye bakışsız)</option>
+            </select>
+          </label>
+          <label id="bt-method-wrap">Yöntem
+            <select id="bt-method" data-methods="Varsayılan yöntem"><option value="">Varsayılan yöntem</option></select>
+          </label>
+          <label>Süre (yıl) <input id="bt-years" type="number" min="1" max="10" step="1" value="5"></label>
+          <button id="btn-backtest" class="btn" type="button">Çalıştır</button>
+        </div>
+        <p id="backtest-info" class="muted"></p>
+        <div id="backtest" class="table-wrap"></div>
+        <canvas id="chart-backtest" height="200" role="img" aria-label="Backtest değer eğrileri" data-table="tbl-backtest"></canvas>
+        <details class="chart-data"><summary>Grafik verisi (tablo)</summary>
+          <table id="tbl-backtest"><caption>Backtest değer eğrileri</caption></table>
+        </details>
       </div>
     </section>
 
-    <section id="view-copilot" class="view hidden">
-      <div class="card"><h2>Copilot</h2>
-        <div class="chips"><button class="chip" type="button">Emekliliğime yetişir miyim?</button><button class="chip" type="button">Dolar %30 artarsa ne olur?</button><button class="chip" type="button">Neden bu dağılım?</button></div>
-        <div id="chat" class="chat" aria-live="polite"></div>
-        <form id="chat-form" class="inline-form"><input id="chat-input" placeholder="Sorunuzu yazın…" required><button class="btn primary" type="submit">Gönder</button></form>
+    <section id="view-stress" class="view hidden" aria-labelledby="st-title">
+      <div class="card">
+        <h2 id="st-title">Stres laboratuvarı</h2>
+        <div class="actions">
+          <label>Senaryo <select id="stress-scenario"></select></label>
+          <button id="btn-stress" class="btn primary" type="button">Uygula</button>
+        </div>
+        <fieldset class="inline-form">
+          <legend>Özel senaryo (oransal şok, ör. -0,2 = %20 düşüş)</legend>
+          <label>BIST <input id="sc-bist" type="number" step="0.05" value="0"></label>
+          <label>USDTRY <input id="sc-usd" type="number" step="0.05" value="0"></label>
+          <label>Altın <input id="sc-gold" type="number" step="0.05" value="0"></label>
+          <label>Faiz <input id="sc-rate" type="number" step="0.01" value="0"></label>
+          <button id="btn-stress-custom" class="btn" type="button">Özel senaryo</button>
+        </fieldset>
+        <div id="stress-result"></div>
+        <canvas id="chart-stress" height="200" role="img" aria-label="Stres senaryosu kâr/zarar katkıları" data-table="tbl-stress"></canvas>
+        <details class="chart-data"><summary>Grafik verisi (tablo)</summary>
+          <table id="tbl-stress"><caption>Varlık bazında kâr/zarar</caption></table>
+        </details>
       </div>
     </section>
 
-    <section id="view-advisor" class="view hidden">
+    <section id="view-risk" class="view hidden" aria-labelledby="risk-title">
+      <div class="card">
+        <h2 id="risk-title">Risk nereden geliyor?</h2>
+        <p id="risk-info" class="muted prose"></p>
+        <canvas id="chart-risk-classes" height="200" role="img" aria-label="Varlık sınıfı ağırlığı ve risk payı" data-table="tbl-risk-classes"></canvas>
+        <details class="chart-data"><summary>Grafik verisi (tablo)</summary>
+          <table id="tbl-risk-classes"><caption>Ağırlık ve risk payı</caption></table>
+        </details>
+        <div id="risk-classes" class="table-wrap"></div>
+        <h3>Faktörler</h3>
+        <div id="risk-factors" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="view-tax" class="view hidden" aria-labelledby="tax-title">
+      <div class="card">
+        <h2 id="tax-title">Vergi (bilgi amaçlı)</h2>
+        <p class="muted">Tahmini stopaj hesabıdır; vergi tavsiyesi değildir.</p>
+        <div class="actions">
+          <label>Lot yöntemi
+            <select id="tax-method">
+              <option value="HIFO">HIFO (en yüksek maliyet önce)</option>
+              <option value="FIFO">FIFO (ilk giren önce)</option>
+            </select>
+          </label>
+        </div>
+        <h3>Açık lotlar</h3>
+        <div id="tax-lots" class="table-wrap scroll-y"></div>
+        <p id="tax-note" class="muted"></p>
+        <h3>Gerçekleşen kâr/zarar</h3>
+        <label class="inline">Yıl <input id="tax-year" type="number" min="2000" max="2100" step="1"></label>
+        <div id="tax-realized" class="table-wrap"></div>
+        <h3>Satış simülasyonu</h3>
+        <form id="tax-sale-form" class="inline-form">
+          <label>Sembol <select id="tax-symbol"></select></label>
+          <label>Miktar <input id="tax-qty" type="number" min="0" step="any" value="1" required></label>
+          <button class="btn primary" type="submit">Simüle et</button>
+        </form>
+        <div id="tax-sim" class="table-wrap" aria-live="polite"></div>
+        <h3>Vergi zararı hasadı</h3>
+        <div id="tax-harvest" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="view-models" class="view hidden" aria-labelledby="models-title">
+      <div class="card">
+        <h2 id="models-title">Model portföyler: seviye karşılaştırması</h2>
+        <p id="models-info" class="muted"></p>
+        <canvas id="chart-models" height="240" role="img" aria-label="Risk seviyelerinin oynaklık–getiri grafiği" data-table="tbl-models"></canvas>
+        <details class="chart-data" open><summary>Grafik verisi (tablo)</summary>
+          <table id="tbl-models"><caption>Seviye başına walk-forward ve statik model sonuçları</caption></table>
+        </details>
+        <label class="inline">Seviye <select id="model-level"></select></label>
+        <canvas id="chart-model-curve" height="200" role="img" aria-label="Seçili seviyenin değer eğrisi" data-table="tbl-model-curve"></canvas>
+        <details class="chart-data"><summary>Grafik verisi (tablo)</summary>
+          <table id="tbl-model-curve"><caption>Değer eğrisi ve kıyaslar</caption></table>
+        </details>
+      </div>
+    </section>
+
+    <section id="view-copilot" class="view hidden" aria-labelledby="cp-title">
+      <div class="card">
+        <h2 id="cp-title">Copilot</h2>
+        <div id="copilot-chips" class="chips">
+          <button class="chip" type="button">Emekliliğime yetişir miyim?</button>
+          <button class="chip" type="button">Dolar %30 artarsa ne olur?</button>
+          <button class="chip" type="button">Neden bu dağılım?</button>
+        </div>
+        <div id="chat" class="chat" aria-live="polite" aria-label="Sohbet geçmişi" tabindex="0"></div>
+        <form id="chat-form" class="inline-form">
+          <label class="grow"><span class="sr-only">Sorunuz</span>
+            <input id="chat-input" placeholder="Sorunuzu yazın…" required>
+          </label>
+          <button class="btn primary" type="submit">Gönder</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-data" class="view hidden" aria-labelledby="dq-title">
+      <div class="card">
+        <h2 id="dq-title">Veri kalitesi</h2>
+        <p id="dq-summary" class="muted"></p>
+        <label class="check"><input id="dq-only-issues" type="checkbox"> Yalnız sorunlu seriler</label>
+        <div id="dq-table" class="table-wrap"></div>
+        <div id="data-proxy-note"></div>
+      </div>
+    </section>
+
+    <section id="view-advisor" class="view hidden" aria-labelledby="adv-title">
+      <h1 id="adv-title" class="sr-only">Danışman paneli</h1>
       <div class="grid two">
         <div class="card"><h2>Onay kuyruğu</h2><ul id="queue" class="list"></ul></div>
-        <div class="card"><h2>Black-Litterman ev görüşü</h2>
-          <form id="view-form" class="inline-form"><input name="symbol" value="ALTIN_TL" required><input name="expected_return" type="number" step="0.01" value="0.35" required><input name="confidence" type="number" step="0.05" value="0.6" required><button class="btn primary" type="submit">Kaydet</button></form>
-          <button id="btn-suggest" class="btn" type="button">LLM'den görüş önerisi al</button><ul id="views" class="list"></ul></div>
+        <div class="card">
+          <h2>Black-Litterman ev görüşü</h2>
+          <form id="view-form" class="inline-form">
+            <label>Sembol <input name="symbol" value="ALTIN_TL" required></label>
+            <label>Beklenen getiri <input name="expected_return" type="number" step="0.01" value="0.35" required></label>
+            <label>Güven <input name="confidence" type="number" step="0.05" min="0" max="1" value="0.6" required></label>
+            <button class="btn primary" type="submit">Kaydet</button>
+          </form>
+          <button id="btn-suggest" class="btn" type="button">LLM'den görüş önerisi al</button>
+          <ul id="views" class="list"></ul>
+        </div>
       </div>
-      <div class="card"><h2>Denetim izi</h2><button id="btn-verify" class="btn" type="button">Zinciri doğrula</button><span id="verify-result"></span><ul id="audit" class="list small"></ul></div>
+      <div class="card">
+        <h2>Denetim izi</h2>
+        <button id="btn-verify" class="btn" type="button">Zinciri doğrula</button>
+        <span id="verify-result" aria-live="polite"></span>
+        <ul id="audit" class="list small"></ul>
+      </div>
     </section>
   </main>
   <footer class="footer">Bilgi amaçlıdır, yatırım tavsiyesi değildir. Gerçek yatırım danışmanlığı SPK lisanslı kuruluşlarca verilir.</footer>
