@@ -432,6 +432,9 @@ def build_instruments(
 ) -> list[SeriesResult]:
     """Instrument series with provenance from raw Yahoo data and TEFAS NAVs."""
     frame = raw.sort_index().ffill()
+    # Vekiller faizi karar tarihinde değiştirir; ay sonu değeri şoku haftalarca geciktirir.
+    steps = macro.attrs.get("policy_steps")
+    rate_source = pd.DataFrame({"POLICY_RATE": steps}) if steps is not None else macro
     results: list[SeriesResult] = []
     for spec in UNIVERSE:
         if spec.source == "yfinance" and spec.yahoo_symbol in frame.columns:
@@ -454,7 +457,7 @@ def build_instruments(
         elif spec.source == "tefas" and spec.symbol in funds:
             real = funds[spec.symbol]
             if spec.splice:
-                proxy = proxy_series(spec.splice, spec.symbol, frame, macro)
+                proxy = proxy_series(spec.splice, spec.symbol, frame, rate_source)
                 series, until = splice(real, proxy)
                 results.append(
                     SeriesResult(
@@ -472,7 +475,7 @@ def build_instruments(
                 results.append(SeriesResult(spec.symbol, real, f"tefas:{spec.tefas_code}", False))
         elif spec.source == "tefas" and spec.splice:
             # TEFAS erişilemedi: tamamen vekil — açıkça işaretlenir.
-            proxy = proxy_series(spec.splice, spec.symbol, frame, macro)
+            proxy = proxy_series(spec.splice, spec.symbol, frame, rate_source)
             results.append(
                 SeriesResult(
                     spec.symbol,
@@ -524,6 +527,7 @@ def write_snapshot(
             "last_date": s.index.max().date().isoformat() if not s.empty else None,
             "rows": int(s.shape[0]),
             "is_proxy": bool(r.is_proxy),
+            "has_proxy_segment": bool(r.is_proxy or r.proxy_until),
             "proxy_until": r.proxy_until,
             "note": r.note,
         }
@@ -582,6 +586,7 @@ def _macro(
         except Exception as exc:  # noqa: BLE001
             print(f"EVDS alınamadı ({type(exc).__name__}); anahtarsız kaynaklara geçiliyor.")
     frame = pd.DataFrame(index=months)
+    policy_steps: pd.Series | None = None
     try:
         steps = fetch_policy_rate(client=client)
         sources["POLICY_RATE"] = "tcmb:1_hafta_repo"
@@ -592,6 +597,7 @@ def _macro(
         except Exception as exc:  # noqa: BLE001
             print(f"GLP faizi alınamadı ({type(exc).__name__}); yalnız repo kullanılıyor.")
         frame["POLICY_RATE"] = monthly_policy_rate(steps, months)
+        policy_steps = steps
         print(
             f"Politika faizi: {len(steps)} karar, son {steps.index[-1].date()} = {steps.iloc[-1]:.2%}"
         )
@@ -619,7 +625,10 @@ def _macro(
     frame["USDTRY"] = usdtry.resample("ME").last().reindex(months)
     sources["USDTRY"] = "yahoo:USDTRY=X"
     frame["POLICY_RATE"] = frame["POLICY_RATE"].ffill()
-    return frame[["TUFE", "POLICY_RATE", "USDTRY"]].dropna(how="all"), sources
+    result = frame[["TUFE", "POLICY_RATE", "USDTRY"]].dropna(how="all")
+    if policy_steps is not None:
+        result.attrs["policy_steps"] = policy_steps
+    return result, sources
 
 
 def main() -> int:

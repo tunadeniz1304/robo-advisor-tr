@@ -13,6 +13,10 @@ Every series of the panel is checked for:
 * ``stale`` — the last observation is older than ``stale_days`` calendar
   days at ``as_of``.
 
+Extreme moves older than ``recent_days`` are reported with severity
+``info`` (e.g. the 2018 and 2021 FX shocks are real events, not data errors)
+and do not turn the series status into a warning.
+
 Thresholds live in ``[data_quality]`` of the policy file. The result is
 served at ``GET /api/v1/data/quality`` and summarised in the UI badge.
 """
@@ -99,9 +103,11 @@ def assess_series(
         for when, value in flagged.iloc[:MAX_ISSUES_PER_KIND].items():
             ratio = float(np.exp(value))
             kind = "split_suspect" if _split_like(ratio, cfg["split_tolerance"]) else "jump"
+            recent = (pd.Timestamp(as_of) - pd.Timestamp(when)).days <= cfg["recent_days"]
             issues.append(
                 {
                     "kind": kind,
+                    "severity": "warning" if recent or kind == "split_suspect" else "info",
                     "date": pd.Timestamp(when).date().isoformat(),
                     "detail": f"Günlük değişim {ratio - 1:+.1%} (z={float(z[when]):.1f}).",
                 }
@@ -115,8 +121,10 @@ def assess_series(
                 "detail": f"Son gözlem {age} gün önce.",
             }
         )
+    for issue in issues:
+        issue.setdefault("severity", "warning")
     status = "ok"
-    if issues:
+    if any(i["severity"] == "warning" for i in issues):
         status = "error" if age > cfg["stale_error_days"] else "warning"
     return {
         "symbol": name,
