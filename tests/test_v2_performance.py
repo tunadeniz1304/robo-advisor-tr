@@ -147,7 +147,10 @@ def test_performance_and_report_endpoints_agree(client: TestClient) -> None:
     pid = create_portfolio(client, cid)["id"]
     perf = client.get(f"/api/v1/portfolios/{pid}/performance").json()
     rep = client.get(f"/api/v1/portfolios/{pid}/report").json()
-    rf = client.app.state.container.market.risk_free_rate()  # type: ignore[attr-defined]
+    # v2 denetim turu 1: Sharpe'ta bugünkü değil, dönemde geçerli faizlerin ortalaması.
+    market = client.app.state.container.market  # type: ignore[attr-defined]
+    start, end = rep["period"]["start"], rep["period"]["end"]
+    rf = market.mean_risk_free_rate(pd.Timestamp(start), pd.Timestamp(end))
     assert rf > 0
     assert perf["risk_free_rate"] == pytest.approx(rf)
     assert rep["tear_sheet"]["risk_free_rate"] == pytest.approx(rf)
@@ -266,3 +269,16 @@ def test_value_curve_starts_when_funded(client: TestClient) -> None:
     client.post(f"/api/v1/proposals/{prop['proposal_id']}/approve")
     curve = client.get(f"/api/v1/portfolios/{pid}/report").json()["value_curve"]
     assert curve and all(point["value"] > 0 for point in curve)
+
+
+def test_tear_sheet_infers_observation_frequency_from_dates() -> None:
+    from services.analytics.performance import infer_periods_per_year, tear_sheet
+
+    idx = pd.bdate_range("2021-01-01", "2025-12-31")  # yılda ~261 iş günü
+    ppy = infer_periods_per_year(idx)
+    assert 259 < ppy < 263
+    r = pd.Series(0.001, index=idx)
+    years = len(idx) / ppy
+    assert tear_sheet(r)["cagr"] == pytest.approx(1.001 ** (len(idx) / years) - 1, rel=1e-9)
+    monthly = pd.date_range("2020-01-31", periods=24, freq="ME")
+    assert infer_periods_per_year(monthly) == pytest.approx(12.0, rel=0.01)

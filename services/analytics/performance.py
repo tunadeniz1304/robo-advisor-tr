@@ -32,10 +32,22 @@ TRADING_DAYS = 252
 Z95 = 1.6448536269514722
 
 
-def _cagr(series: pd.Series, periods_per_year: int) -> float:
+def _cagr(series: pd.Series, periods_per_year: float) -> float:
     growth = float((1.0 + series).prod())
     years = len(series) / periods_per_year
     return growth ** (1.0 / years) - 1.0 if years > 0 and growth > 0 else -1.0
+
+
+def infer_periods_per_year(index: pd.Index) -> float:
+    """Observations per calendar year of a dated series (fallback: 252).
+
+    Each return covers one period, so ``n`` returns span ``n/(n−1)`` times the
+    distance between the first and last date.
+    """
+    if not isinstance(index, pd.DatetimeIndex) or len(index) < 3:
+        return float(TRADING_DAYS)
+    span_years = (index[-1] - index[0]).days / 365.25 * len(index) / (len(index) - 1)
+    return len(index) / span_years if span_years > 0 else float(TRADING_DAYS)
 
 
 def max_drawdown(returns: pd.Series) -> tuple[float, pd.Series]:
@@ -49,7 +61,7 @@ def tear_sheet(
     *,
     risk_free_rate: float = 0.0,
     benchmark: pd.Series | None = None,
-    periods_per_year: int = TRADING_DAYS,
+    periods_per_year: float | None = None,
     years: float | None = None,
 ) -> dict[str, Any]:
     """Tear sheet metrics of a periodic simple return series.
@@ -58,13 +70,17 @@ def tear_sheet(
         returns: Periodic simple returns.
         risk_free_rate: Annual risk-free rate (Sharpe/Sortino).
         benchmark: Optional benchmark returns on the same index.
-        periods_per_year: Periods per year (252 daily, 12 monthly).
+        periods_per_year: Periods per year. ``None`` infers it from a date
+            index (observations per calendar year — the snapshot has ~261
+            weekday rows a year, not 252); without dates 252 is used.
         years: Calendar length of the period. When given, CAGR uses it and is
             ``None`` below one year; otherwise ``len(returns)/periods_per_year``.
     """
     r = returns.replace([np.inf, -np.inf], np.nan).dropna()
     if r.shape[0] < 2:
         return {"observations": int(r.shape[0]), "risk_free_rate": risk_free_rate}
+    if periods_per_year is None:
+        periods_per_year = infer_periods_per_year(r.index)
     growth = float((1.0 + r).prod())
     if years is None:
         cagr: float | None = _cagr(r, periods_per_year)
@@ -172,4 +188,4 @@ def xirr(cashflows: list[tuple[date, float]]) -> float | None:
         return None
 
 
-__all__ = ["max_drawdown", "tear_sheet", "time_weighted_return", "xirr"]
+__all__ = ["infer_periods_per_year", "max_drawdown", "tear_sheet", "time_weighted_return", "xirr"]

@@ -85,9 +85,12 @@ async def portfolio_report(
     values, flows = await value_history(session, market, portfolio)
     bench = await market.returns([benchmark_symbol])
     bench_series = bench[benchmark_symbol] if benchmark_symbol in bench else None
-    summary = summarize(
-        values, flows, risk_free_rate=market.risk_free_rate(), benchmark=bench_series
-    )
+    funded_idx = values[values > max(1.0, float(values.abs().max()) * 1e-6)].index
+    if len(funded_idx) > 1:  # Sharpe: dönemde geçerli faizlerin ortalaması (bugünkü değil)
+        rf = market.mean_risk_free_rate(funded_idx[0], funded_idx[-1])
+    else:
+        rf = market.risk_free_rate()
+    summary = summarize(values, flows, risk_free_rate=rf, benchmark=bench_series)
     # Fonlanmadan önceki (değeri ~0) günler eğride gösterilmez.
     funded = values[values > max(1.0, float(values.abs().max()) * 1e-6)]
     curve = values.loc[funded.index[0] :] if not funded.empty else values
