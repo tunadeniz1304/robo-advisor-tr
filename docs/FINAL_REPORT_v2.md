@@ -10,8 +10,8 @@ Plan ve V0'da yeniden üretilen bulgular: [PLAN_v2](PLAN_v2.md).
 | Kontrol | Sonuç |
 |---|---|
 | `ruff check .` / `ruff format --check .` | temiz |
-| `mypy .` (`check_untyped_defs=true`; `services`, `core`, `llm` için `disallow_untyped_defs=true`) | temiz, 160 dosya |
-| `pytest -q --cov` (E2E hariç) | **348 test geçti** (v1: 228); toplam kapsam **%94**, her modül ≥ %80 |
+| `mypy .` (`check_untyped_defs=true`; `services`, `core`, `llm` için `disallow_untyped_defs=true`) | temiz, 161 dosya |
+| `pytest -q --cov` (E2E hariç) | **349 test geçti** (v1: 228); toplam kapsam **%94**, her modül ≥ %80 (`main.py` giriş noktası dahil; `--cov=.` ile ölçüldü) |
 | `pytest tests/e2e` (Playwright, gerçek Chromium) | 3 akış testi geçti; CI'da Chromium kurulur |
 | `docker compose build` | başarılı (api + PostgreSQL + Redis) |
 | `git grep` ile iç LLM adresi | takip edilen dosyalarda yok |
