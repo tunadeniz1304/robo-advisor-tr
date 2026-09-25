@@ -138,12 +138,25 @@ REG_PATTERN = re.compile(
 )
 
 
+def _blocks(text: str) -> list[str]:
+    """Paragraphs and list items (a wrapped bullet is one block)."""
+    blocks: list[list[str]] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        new_block = not stripped or stripped.startswith(("* ", "- ", "#", "|")) or not blocks
+        if new_block:
+            blocks.append([])
+        if stripped:
+            blocks[-1].append(stripped)
+    return [" ".join(b) for b in blocks if b]
+
+
 @pytest.mark.parametrize("name", ["COMPLIANCE.md", "METHODOLOGY.md"])
 def test_regulatory_references_are_sourced_or_flagged(name: str) -> None:
-    lines = (ROOT / "docs" / name).read_text(encoding="utf-8").splitlines()
+    text = (ROOT / "docs" / name).read_text(encoding="utf-8")
     unsourced = [
-        line
-        for line in lines
-        if REG_PATTERN.search(line) and "http" not in line and "doğrulanmadı" not in line.lower()
+        block
+        for block in _blocks(text)
+        if REG_PATTERN.search(block) and "http" not in block and "doğrulanmadı" not in block.lower()
     ]
     assert not unsourced, unsourced[:5]

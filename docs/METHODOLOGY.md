@@ -1,6 +1,6 @@
 # Metodoloji
 
-## 1. Risk profilleme (SPK III-37.1)
+## 1. Risk profilleme (yerindelik testi; kaynaklar için bkz. [COMPLIANCE](COMPLIANCE.md))
 15 soru üç boyutta puanlanır: bilgi/deneyim (K), risk kapasitesi (C, objektif), risk toleransı (T,
 psikolojik). Her boyut `100·Σ w_q s_q / Σ w_q max_q`; 0–100 → 1–10 eşikleri politika dosyasındadır.
 **Nihai seviye = min(L_C, L_T)**, ardından sınırlar: K<10 → ≤3, K<25 → ≤5, borç/gelir >%50 → ≤3,
@@ -72,7 +72,7 @@ Aylık nominal TL portföy getirisi ve aylık TÜFE **aynı indekslerle** blok b
   sarılır. Her olay bir *değerleme gününe* eşlenir: hafta sonu/tatil olayları bir sonraki işlem
   gününün kapanışına, son fiyat gününden sonraki olaylar son güne taşınır (roll-forward); pencere
   öncesi olaylar açılış durumunun içindedir.
-* **Akış sınıflandırması (GIPS mantığı):** yalnızca müşterinin yatırma/çekme işlemleri dış
+* **Akış sınıflandırması** (GIPS 2020 tanımı, https://www.gipsstandards.org/wp-content/uploads/2021/03/2020_gips_standards_firms.pdf): yalnızca müşterinin yatırma/çekme işlemleri dış
   akıştır. Temettü, kupon, faiz, ücret, vergi ve komisyon portföy içidir ve TWR'a girer.
 * **TWR:** `r_t = (V_t − F_t)/V_{t−1} − 1` (F yalnız dış akış, gün sonu varsayımı), fonlanmamış
   günler hariç. `twr_cumulative` dönemin zincirlenmiş getirisi; `twr_annualized` takvim günüyle
