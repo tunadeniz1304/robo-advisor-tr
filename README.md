@@ -64,6 +64,7 @@ LLM emir vermez ve sayı üretmez.
 * **Backtest:** optimizer'lı backtest'ler walk-forward çalışır (her tarihte yalnız geçmiş veri);
   XU100, TÜFE+%3 ve 60/40 ölçütleriyle aynı dönemde raporlanır. 10 seviyenin sonuçları:
   [MODEL_PORTFOLIOS](docs/MODEL_PORTFOLIOS.md).
+* **Onay akışı:** öneriyi müşteri kendi portföyü için onaylayabilir (açık rıza); danışman ve yönetici kendilerine atanan müşterilerin önerilerini onay kuyruğunda görür. Hiçbir öneri onaysız yürütülmez.
 * **Rebalance:** `min(%5, max(%0,5; %25 × hedef))` enstrüman bandı + %3 sınıf bandı, önce nakit,
   maliyet/stopaj önizlemeli minimum devir LP'si.
 * **Risk:** varlık sınıfı bazında Euler risk katkıları ve BIST/USDTRY/TL faiz faktör modeli.

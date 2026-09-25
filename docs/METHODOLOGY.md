@@ -34,7 +34,7 @@ Günlük TL getirileri (3–5 yıl). **Ledoit-Wolf**: `Σ̂ = δ·μI + (1−δ)
   `params.binding_constraints` alanında raporlanır.
 
 ### Yöntemler neden çoğu zaman benzer sonuç veriyor, ne zaman ayrışıyor?
-* Sınıf toplamları model portföyün ±10 puan bandına bağlıdır (uygunluk çapası). HRP, min-CVaR,
+* Sınıf toplamları model portföyün ±5 puan bandına bağlıdır (uygunluk çapası; v2 denetiminde ±10'dan daraltıldı — ±10 ile HRP ve stres rejimi eğilimi çok agresif bir profile savunmacı bir dağılım önerebiliyordu). HRP, min-CVaR,
   min-varyans ve (TL faizinin yüksek olduğu dönemde) maks-Sharpe, riski en düşük sınıfı — TL para
   piyasasını — sevdiği için bu sınıf çoğunlukla **üst sınırına yapışır**. Seviye 6'da para piyasası
   %25'e, TL tahvil %30'a oturur: portföyün yarısından fazlası yöntemden değil politikadan gelir.
@@ -78,8 +78,10 @@ Aylık nominal TL portföy getirisi ve aylık TÜFE **aynı indekslerle** blok b
   günler hariç. `twr_cumulative` dönemin zincirlenmiş getirisi; `twr_annualized` takvim günüyle
   `(1+TWR)^(365,25/gün) − 1` ve **bir yıldan kısa dönemde verilmez**. **MWR:** XIRR (Brent), yıllık,
   aynı kuralla. Her yanıt `period` (başlangıç, bitiş, gün, yıl) taşır.
-* **Tear sheet:** CAGR (aynı takvim kuralı), vol, **Sharpe = (ortalama günlük getiri − r_f,gün)·252 /
-  σ_yıllık** (ex-post; risksiz faiz her yerde TCMB politika faizi), Sortino, Calmar, MDD,
+* **Tear sheet:** CAGR (aynı takvim kuralı), vol, **Sharpe = (ortalama dönemsel getiri − r_f,dönem)·N /
+  σ_yıllık** (ex-post). N (yıllık gözlem sayısı) tarihlerden çıkarılır: snapshot'ta yılda ~261 hafta içi
+  satır vardır, sabit 252 kullanmak dönemi uzatıp CAGR'ı düşürüyordu. Risksiz faiz, ölçülen dönemde
+  geçerli TCMB politika faizlerinin ortalamasıdır (bugünkü faiz değil). Sortino, Calmar, MDD,
   tarihsel/parametrik VaR-CVaR %95, XU100 beta/TE/IR. `/performance` artık `/report`'un
   kullanımdan kalkan bir özetidir; ikisi aynı sayıları döndürür.
 * **Backtest:** rebalance yok / takvim / bant (canlı motorla aynı bant kuralı), maliyetli.

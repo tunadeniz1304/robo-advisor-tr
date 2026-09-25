@@ -47,7 +47,7 @@ ilk gerçek güne ölçeklenir (seviye sürekliliği; getiriler vekilindir):
 | `EUROBOND_TL` | EMB (ABD'de işlem gören gelişen piyasa USD tahvil ETF'i) × USDTRY |
 
 `data/snapshots/meta.json` içinde her seri için `source`, `fetched_at`, `first_date`, `last_date`,
-`rows`, **`is_proxy`** ve **`proxy_until`** alanları bulunur. `is_proxy=true` serinin tamamen vekil
+`rows`, **`is_proxy`**, **`has_proxy_segment`** ve **`proxy_until`** alanları bulunur. `has_proxy_segment=true` serinin en az bir kısmının vekil olduğunu söyler; `is_proxy=true` serinin tamamen vekil
 olduğunu (TEFAS'a ulaşılamadığında), `proxy_until` ise o tarihe kadarki kısmın vekil olduğunu
 gösterir. Arayüzdeki veri rozeti ve "Veri kalitesi" kartı bu alanları gösterir.
 
@@ -87,7 +87,7 @@ senaryolarda (2018 kur şoku, 2020 COVID) ve 10 yıllık analizlerde kullanılı
 | `stale` | Son gözlem 7 günden eski (45 günden eskiyse hata) |
 
 Sonuç `GET /api/v1/data/quality` ile döner ve arayüzde "Veri kalitesi" kartında gösterilir.
-Gerçek piyasa olayları da (ör. Ağustos 2018 ve Aralık 2021 kur şokları) `jump` olarak
+Son 90 günden (`recent_days`) eski uç hareketler `severity: info` olarak listelenir ve seri durumunu bozmaz; yeni olanlar ve bölünme şüphesi `warning`'dir. Vekiller politika faizini karar tarihinde değiştirir (ay sonu değeri kullanmak 13.09.2018 faiz artışını tahvil vekiline 1 Ekim'de yansıtıyordu). Gerçek piyasa olayları da (ör. Ağustos 2018 ve Aralık 2021 kur şokları) `jump` olarak
 işaretlenebilir; bunlar hata değil, incelenmesi gereken uç gözlemlerdir.
 
 ## Lisans ve atıf

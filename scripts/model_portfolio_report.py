@@ -65,7 +65,10 @@ def render(result: dict[str, Any]) -> str:
         f"* **Yöntem:** `{result['method']}` optimizer, {policy.backtest['window_days']} işlem "
         f"günlük tahmin penceresi, {policy.backtest['rebalance_days']} günde bir yeniden "
         "optimizasyon; her tarihte yalnızca o tarihe kadarki veri kullanılır (look-ahead yok).",
-        "* **Statik model:** sınıf temsilcileriyle model ağırlıkları, bant politikasıyla rebalance.",
+        "* **Statik model:** model sınıf ağırlıkları sınıf sepetlerine eşit dağıtılır (hisse "
+        "sınıfı = evrendeki 15 BIST hissesi, döviz = USD+EUR, fonlar = sınıf temsilcisi), bant "
+        "politikasıyla rebalance. Hisse sepeti bugünün büyük şirketlerinden oluştuğu için "
+        "**hayatta kalma yanlılığı** taşır; statik sonuçlar bu yüzden iyimserdir.",
         f"* **Sharpe** dönem ortalaması TL politika faiziyle (%{result['risk_free_rate'] * 100:.1f}) "
         "hesaplanır; işlem maliyetleri dahildir, vergi hariçtir.",
         "",
