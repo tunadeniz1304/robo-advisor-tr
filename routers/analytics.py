@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Any, cast
 
 import numpy as np
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -266,4 +267,61 @@ async def tax_harvest(
         "candidates": candidates,
         "total_potential_offset": round(sum(c["potential_tax_offset"] for c in candidates), 2),
         "note": "Bilgi amaçlıdır; vergi oranları yapılandırmadandır, güncel mevzuatı kontrol edin.",
+    }
+
+
+@router.get(
+    "/{portfolio_id}/risk-sources",
+    summary="Risk nereden geliyor? Varlık sınıfı katkıları ve faktör analizi",
+)
+async def risk_decomposition(
+    request: Request,
+    portfolio_id: int,
+    session: SessionDep,
+    user: UserDep,
+    years: Annotated[float, Query(ge=1.0, le=10.0)] = 3.0,
+) -> dict[str, Any]:
+    """Euler volatility contributions by asset class and a weekly factor regression.
+
+    Uses today's market-value weights over the last ``years`` of weekly data
+    (a hypothetical constant-weight history, not the ledger performance).
+    """
+    from services.analytics.risk_decomposition import (
+        class_risk_contributions,
+        factor_decomposition,
+        weekly_factors,
+    )
+
+    portfolio = await load_portfolio_checked(session, user, portfolio_id)
+    held = _held(portfolio)
+    if not held:
+        raise HTTPException(status_code=409, detail="Portföyde riskli pozisyon yok.")
+    market = market_of(request)
+    factor_syms = ["XU100.IS", "USDTRY", "TL_TAHVIL", "TL_PPF"]
+    prices = await market.history(sorted(set(held) | set(factor_syms)))
+    prices = prices[prices.index >= prices.index[-1] - pd.DateOffset(years=int(round(years)))]
+    last = prices.ffill().iloc[-1]
+    values = pd.Series(
+        {s: float(q) * float(last[s]) for s, q in (portfolio.holdings or {}).items() if s in last}
+    )
+    total = float(values.sum()) + float(portfolio.cash)
+    weights = values / total
+    weekly = prices[list(values.index)].resample("W-FRI").last().pct_change(fill_method=None)
+    weekly = weekly.iloc[1:].dropna(how="any")
+    cov = weekly.cov() * 52
+    classes = class_risk_contributions(weights, cov)
+    port = (weekly * weights).sum(axis=1)
+    try:
+        factors = factor_decomposition(port, weekly_factors(prices[factor_syms]))
+    except ValueError as exc:
+        factors = {"error": str(exc)}
+    return {
+        "portfolio_id": portfolio_id,
+        "cash_weight": float(portfolio.cash) / total if total > 0 else 0.0,
+        "window": {"start": str(weekly.index[0].date()), "end": str(weekly.index[-1].date())},
+        "frequency": "haftalık",
+        **classes,
+        "factors": factors,
+        "note": "Bugünkü ağırlıklarla varsayımsal geçmiş; faiz faktörü = TL tahvil − para "
+        "piyasası getirisi (süre getirisi).",
     }
