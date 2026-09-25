@@ -92,10 +92,14 @@ async def list_transactions(
 async def get_transaction(transaction_id: int, session: SessionDep, user: UserDep) -> Transaction:
     """Fetch a single transaction by id."""
     transaction = await session.get(Transaction, transaction_id)
+    missing = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Transaction {transaction_id} bulunamadı.",
+    )
     if transaction is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Transaction {transaction_id} bulunamadı.",
-        )
-    await load_portfolio_checked(session, user, transaction.portfolio_id)
+        raise missing
+    try:
+        await load_portfolio_checked(session, user, transaction.portfolio_id)
+    except HTTPException as exc:
+        raise missing from exc  # başkasının kaydı: var olmayanla aynı yanıt
     return transaction

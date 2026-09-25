@@ -86,9 +86,13 @@ async def list_runs(
 async def get_run(run_id: int, session: SessionDep, user: UserDep) -> AdvisorRunOut:
     """Fetch a single audit run by id (404 if absent)."""
     run = await session.get(AdvisorRun, run_id)
+    missing = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail=f"advisor run {run_id} not found"
+    )
     if run is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"advisor run {run_id} not found"
-        )
-    await load_portfolio_checked(session, user, run.portfolio_id)
+        raise missing
+    try:
+        await load_portfolio_checked(session, user, run.portfolio_id)
+    except HTTPException as exc:
+        raise missing from exc  # başkasının kaydı: var olmayanla aynı yanıt
     return _run_out(run)
