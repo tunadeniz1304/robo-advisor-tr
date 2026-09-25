@@ -48,6 +48,7 @@ addopts = "-p no:cacheprovider -p no:logging"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 python_files = ["test_*.py"]
+markers = ["e2e: tarayıcı ile uçtan uca arayüz testi (Playwright)"]
 filterwarnings = [
     "ignore::DeprecationWarning:yfinance.*",
     "ignore::DeprecationWarning:passlib.*",
