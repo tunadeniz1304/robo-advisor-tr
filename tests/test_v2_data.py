@@ -218,6 +218,13 @@ def test_no_network_in_tests() -> None:
         httpx.get("https://www.tefas.gov.tr", timeout=1)
 
 
+def test_dns_lookups_are_blocked_too() -> None:
+    import socket
+
+    with pytest.raises(RuntimeError, match="ağ erişimi yasak"):
+        socket.getaddrinfo("www.tefas.gov.tr", 443)
+
+
 def test_effective_funding_rate_uses_llw_in_2017_2018() -> None:
     from scripts.fetch_real_data import effective_funding_rate, parse_tcmb_rate_table
 

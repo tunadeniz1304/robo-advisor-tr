@@ -97,6 +97,16 @@ def _block_network() -> None:
 
     socket.socket.connect = guarded_connect  # type: ignore[method-assign]
 
+    real_getaddrinfo = socket.getaddrinfo
+
+    def guarded_getaddrinfo(host: object, *args: object, **kwargs: object) -> object:
+        # DNS sorgusu da ağa çıkar; çevrimdışı ortamda bile aynı hatayı verir.
+        if host not in {None, "127.0.0.1", "::1", "localhost", b"localhost"}:
+            raise RuntimeError(f"Testlerde ağ erişimi yasak: {host!r}")
+        return real_getaddrinfo(host, *args, **kwargs)  # type: ignore[arg-type]
+
+    socket.getaddrinfo = guarded_getaddrinfo  # type: ignore[assignment]
+
 
 def pytest_configure(config: pytest.Config) -> None:
     """Block the network and migrate one template database for the session."""
