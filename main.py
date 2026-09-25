@@ -32,7 +32,7 @@ logger = get_logger("otonom.main")
 
 app = create_app()
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - elle çalıştırılan geliştirme sunucusu
     import uvicorn
 
     logger.info("starting_uvicorn", host="0.0.0.0", port=8000)
