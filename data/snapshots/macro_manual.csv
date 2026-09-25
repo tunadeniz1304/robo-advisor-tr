@@ -1,5 +1,5 @@
 # Yaklaşık aylık makro seri (TÜFE 2003=100, politika faizi kesir). EVDS_API_KEY ile
-# scripts/refresh_snapshot.py gerçek TCMB EVDS serisini çeker. 2025 sonrası tahmini.
+# scripts/fetch_real_data.py gerçek TCMB serisini çeker; bu dosya yalnızca son çaredir. 2025 sonrası tahmini.
 date,TUFE,POLICY_RATE
 2016-01-31,271.385554,0.08
 2016-02-29,273.243745,0.08

@@ -109,6 +109,9 @@ def render(result: dict[str, Any]) -> str:
         "TÜFE+3 ve 60/40 ölçütleriyle yapılmalıdır.",
         "* Seviye arttıkça volatilite ve maksimum düşüşün artması beklenir; artmıyorsa model "
         "portföy bantları veya evren gözden geçirilmelidir.",
+        "* Gerçek TL para piyasası fonu bu dönemde politika faizinin üzerinde getiri sağladı "
+        "(Sharpe > 0); bu yüzden nakit ağırlıklı düşük seviyelerin Sharpe'ı yüksek seviyelerden "
+        "fazla görünebilir. Sharpe, seviyeleri sıralamak için tek başına kullanılmamalıdır.",
         "* Geçmiş performans gelecek için gösterge değildir; bilgi amaçlıdır.",
         "",
     ]

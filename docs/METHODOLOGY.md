@@ -37,7 +37,7 @@ Günlük TL getirileri (3–5 yıl). **Ledoit-Wolf**: `Σ̂ = δ·μI + (1−δ)
 * Sınıf toplamları model portföyün ±5 puan bandına bağlıdır (uygunluk çapası; v2 denetiminde ±10'dan daraltıldı — ±10 ile HRP ve stres rejimi eğilimi çok agresif bir profile savunmacı bir dağılım önerebiliyordu). HRP, min-CVaR,
   min-varyans ve (TL faizinin yüksek olduğu dönemde) maks-Sharpe, riski en düşük sınıfı — TL para
   piyasasını — sevdiği için bu sınıf çoğunlukla **üst sınırına yapışır**. Seviye 6'da para piyasası
-  %25'e, TL tahvil %30'a oturur: portföyün yarısından fazlası yöntemden değil politikadan gelir.
+  %20'ye, TL tahvil %25'e oturur (model ağırlığı + 5 puan): portföyün neredeyse yarısı yöntemden değil politikadan gelir.
   Bu durum `binding_constraints` ile açıkça gösterilir.
 * Yöntemlerin gerçek söz hakkı **kalan riskli dilimde ve sınıf içindedir**: hisse sepeti, döviz
   (USD/EUR), endeks (XU100/XU030) ve fon alternatifleri arasında. Sentetik, kalın kuyruklu

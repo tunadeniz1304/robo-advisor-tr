@@ -34,4 +34,5 @@ Bu dosya `scripts/model_portfolio_report.py` ile gerçek veri snapshot'ından ü
 * Bu test döneminde TÜFE+%3 hedefini walk-forward CAGR ile geçen seviye sayısı: **4/10**; XU100'ü geçen: **3/10** (daha düşük volatiliteyle).
 * Yüksek enflasyon döneminde nominal TL getiriler yüksektir; asıl karşılaştırma TÜFE+3 ve 60/40 ölçütleriyle yapılmalıdır.
 * Seviye arttıkça volatilite ve maksimum düşüşün artması beklenir; artmıyorsa model portföy bantları veya evren gözden geçirilmelidir.
+* Gerçek TL para piyasası fonu bu dönemde politika faizinin üzerinde getiri sağladı (Sharpe > 0); bu yüzden nakit ağırlıklı düşük seviyelerin Sharpe'ı yüksek seviyelerden fazla görünebilir. Sharpe, seviyeleri sıralamak için tek başına kullanılmamalıdır.
 * Geçmiş performans gelecek için gösterge değildir; bilgi amaçlıdır.
