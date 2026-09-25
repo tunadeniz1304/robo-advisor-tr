@@ -10,8 +10,8 @@ Plan ve V0'da yeniden üretilen bulgular: [PLAN_v2](PLAN_v2.md).
 | Kontrol | Sonuç |
 |---|---|
 | `ruff check .` / `ruff format --check .` | temiz |
-| `mypy .` (`check_untyped_defs=true`; `services`, `core`, `llm` için `disallow_untyped_defs=true`) | temiz, 158 dosya |
-| `pytest -q --cov` (E2E hariç) | **331 test geçti** (v1: 228); toplam kapsam **%94**, her modül ≥ %80 |
+| `mypy .` (`check_untyped_defs=true`; `services`, `core`, `llm` için `disallow_untyped_defs=true`) | temiz, 159 dosya |
+| `pytest -q --cov` (E2E hariç) | **346 test geçti** (v1: 228); toplam kapsam **%94**, her modül ≥ %80 |
 | `pytest tests/e2e` (Playwright, gerçek Chromium) | 3 akış testi geçti; CI'da Chromium kurulur |
 | `docker compose build` | başarılı (api + PostgreSQL + Redis) |
 | `git grep` ile iç LLM adresi | takip edilen dosyalarda yok |
@@ -95,3 +95,44 @@ değiştirmez, yalnız kendi başlattığı süreci kapatır, ayrı port ve geç
 | Tur | Puan | Özet |
 |---|---|---|
 | v1 denetimi | 7,5/10 | 25 bulgu (bu rapordaki tablo) |
+| v2 tur 1 | **8/10** | Testler/lint/mypy/E2E temiz; TWR, Euler, Idzorek, FIFO/HIFO bağımsız hesapla birebir. 13 bulgu (aşağıda) |
+| v2 tur 2 | **8/10** | Canlı API, onay akışı ve maliyet mutabakatı doğrulandı; Sharpe risksiz faiz yöntemi dahil 7 bulgu (aşağıda) |
+
+### Tur 1 bulguları ve karşılıkları
+
+| # | Önem | Bulgu | Karşılık | Commit | Test |
+|---|---|---|---|---|---|
+| 1 | Yüksek | Statik model portföyde hisse sınıfı tek hisseyle (THYAO) temsil ediliyor → getiriler şişik | Sınıf sepetleri: hisse = evrendeki 15 hisse eşit ağırlık, döviz = USD+EUR; hayatta kalma yanlılığı notu | f3d4ae2, 4ed150e | `tests/test_v2_audit.py::test_equity_class_is_a_basket_not_one_stock` |
+| 2 | Orta | Yıllıklandırma 252 gün; veride yılda ~261 satır | Yıllık gözlem sayısı tarihlerden çıkarılır | 0f888fa | `test_tear_sheet_infers_observation_frequency_from_dates` |
+| 3 | Orta | `/report` Sharpe'ı bugünkü faizle | Dönemde geçerli faizlerin ortalaması | 0f888fa | `test_performance_and_report_endpoints_agree` |
+| 4 | Orta | Backtest ağırlıkları doğrulanmıyor (kaldıraç/açığa satış) | Uzun pozisyon, toplam 1 zorunlu | f648ad2 | `test_backtest_rejects_leverage_shorts_and_partial_weights` |
+| 5 | Orta | Tahvil vekilinde 2018 şoku 2,5 hafta gecikmeli | Vekiller karar tarihli faiz serisi kullanır; snapshot yenilendi | 71a7d86 | veri kalitesi raporunda sıçrama 14.09.2018'e taşındı |
+| 6 | Orta | Seviye 10 müşteriye savunmacı öneri (±10 puan bant + stres eğilimi) | Sınıf bandı ±5 puan | 82c6e86 | `test_aggressive_profile_stays_aggressive_under_stress_tilt` |
+| 7 | Düşük | Yabancı portföye rebalance 422 | Bilinmeyen ve yabancı → 404 | f648ad2 | `test_advisor.py::test_unknown_portfolio_is_404`, `test_customer_sees_only_own_data` |
+| 8 | Düşük | `is_proxy=false` ama ilk 5 yıl vekil | `has_proxy_segment` alanı | 71a7d86 | `test_snapshot_marks_proxy_segments` |
+| 9 | Düşük | Çalıştırma sonrası SQLite WAL/SHM dosyaları `git status`'ta görünüyor | `.gitignore` | f648ad2 | — |
+| 10 | Düşük | Gerçekleşen K/Z satış maliyetini düşmüyor | Satış maliyeti lotlara oransal dağıtılır | ae2d21f | `test_realized_pnl_is_net_of_sale_costs` |
+| 11 | Düşük | `/llm/status` müşteriye yapılandırma açıyor | Müşteri yalnız `mode` görür | f648ad2 | `test_llm_status_shows_customers_only_the_mode` |
+| 12 | Düşük | Kalite rozeti hep "uyarı" (gerçek olaylar) | 90 günden eski uç hareketler `info` | 71a7d86 | `test_old_extreme_moves_are_info_not_warning` |
+| 13 | Düşük | Git geçmişi kısa sürede yoğun commit'ler | Geçmiş yeniden yazılmadı (force push yasak); commit'ler küçük ve Conventional Commits, AI atfı yok. Denetim süreci bu raporda açıkça belgelenir | — | — |
+
+### Tur 2 bulguları ve karşılıkları
+
+Tur 2 puanı **8/10**: araçlar (341 test, E2E, ruff, mypy) temiz; canlı API'de yetki sınırları,
+onay akışı, idempotentlik, maliyet mutabakatı ve denetim zinciri doğrulandı. Kalan bulgular:
+
+| # | Önem | Bulgu | Karşılık | Commit | Test |
+|---|---|---|---|---|---|
+| 1 | Yüksek | Sharpe/Sortino şişik: basit politika faizi yıllık bileşik oran gibi kullanılıyor (para piyasası fonu Sharpe ≈ 3,7) | Risksiz getiri `(1+r/365)^365−1`, dönem boyunca log ortalaması; `policy_rate()` alıntılanan oranı ayrıca verir | ac8a791 | `tests/test_v2_audit_round2.py::test_cash_fund_accruing_the_policy_rate_has_near_zero_sharpe` |
+| 2 | Orta | DATA.md walk-forward tahmin penceresinin vekil içermediğini söylüyor | Belge düzeltildi: ilk ~12 yeniden optimizasyonun penceresi kısmen vekil; dışlanan semboller belirtildi | 5a17a6b | — |
+| 3 | Orta | Rebalance stopajı brüt kâr üzerinden | `estimate_sale(fees=…)`: matrah net kâr (ledger ile aynı taban) | fde3f5b | `test_withholding_base_is_net_of_sale_fees` |
+| 4 | Düşük-Orta | Walk-forward da hayatta kalma yanlılığı taşıyor | MODEL_PORTFOLIOS notu walk-forward'u da kapsar | 5a17a6b | — |
+| 5 | Düşük | "5 yıllık test" = 5 × 252 satır = 4,84 takvim yılı | Test dönemi takvim yılıyla kesilir (`trim_for_test`) | d9e5812 | `test_walk_forward_test_period_is_calendar_years` |
+| 6 | Düşük | Varsayılan lot yöntemi HIFO; altın stopajı | Varsayılan FIFO; altın oranının fon varsayımı METHODOLOGY'de açıklandı | ac8a791, 5a17a6b | `test_default_lot_method_is_fifo` |
+| 7 | Düşük | Git geçmişi kısa sürede yoğun | Tur 1 #13 ile aynı gerekçe: geçmiş yeniden yazılmaz | — | — |
+
+Gerekçeli bırakılanlar: optimizer'ın μ/Σ yıllıklandırması 252 ile kalır (girdi ölçeği; ağırlıkları
+yalnız risksiz faizle birlikte etkiler ve piyasa konvansiyonudur). `xirr` 365, dönem 365,25 gün
+kullanır (etkisi ihmal edilebilir). Mevzuat oranları politika dosyasında "bilgi amaçlı"dır.
+Denetçinin gördüğü `FINAL_REPORT_v2.md` değişikliği bu raporun tur 1 bölümüydü (ana oturumun
+commit'lenmemiş düzenlemesi).

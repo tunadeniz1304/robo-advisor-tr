@@ -7,6 +7,7 @@ Bağımsız denetimin (7,5/10) 25 bulgusu kapatıldı; ayrıntı: `docs/FINAL_RE
 - Göreli + mutlak drift bantları (`min(%5, max(%0,5; %25×hedef))`, sınıf bandı %3).
 - Optimizer'lı backtest walk-forward (look-ahead yok) ve XU100 / TÜFE+3 / 60/40 ölçütleri.
 - Black-Litterman Ω: Idzorek yöntemi görüş başına sayısal çözülür (PyPortfolioOpt ile doğrulanır).
+- v2 bağımsız denetim turları: model portföyde sınıf sepetleri (tek hisse yerine 15 hisse), yıllık gözlem sayısı tarihlerden, backtest ağırlık doğrulaması, vekillerde karar tarihli faiz, ±5 puan sınıf bandı, `has_proxy_segment`, net gerçekleşen K/Z ve net stopaj matrahı, Sharpe'ta bileşik risksiz getiri (`(1+r/365)^365−1`), takvim yılıyla walk-forward test dönemi, varsayılan FIFO lot yöntemi.
 - Güvenlik: prod'da zayıf JWT sırrı / eksik PII anahtarıyla başlamama, `/llm/status` kimlik ister, `/metrics` varsayılan kapalı, rol her istekte DB'den, yabancı kayıt 404, X-Forwarded-For yalnız güvenilen vekilde.
 ### Eklendi
 - Gerçek veri: `scripts/fetch_real_data.py` (Yahoo Finance, TEFAS, TCMB), parquet snapshot, seri bazında kaynak/vekil metadata'sı, veri kalitesi katmanı ve `GET /data/quality`, `GET /system/status`, `docs/DATA.md`.
