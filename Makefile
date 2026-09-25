@@ -36,7 +36,7 @@ smoke:
 	$(PY) scripts/llm_smoke.py
 
 snapshot:
-	$(PY) scripts/refresh_snapshot.py
+	$(PY) scripts/fetch_real_data.py
 
 docker-build:
 	docker compose build
