@@ -10,8 +10,8 @@ Plan ve V0'da yeniden üretilen bulgular: [PLAN_v2](PLAN_v2.md).
 | Kontrol | Sonuç |
 |---|---|
 | `ruff check .` / `ruff format --check .` | temiz |
-| `mypy .` (`check_untyped_defs=true`; `services`, `core`, `llm` için `disallow_untyped_defs=true`) | temiz, 159 dosya |
-| `pytest -q --cov` (E2E hariç) | **346 test geçti** (v1: 228); toplam kapsam **%94**, her modül ≥ %80 |
+| `mypy .` (`check_untyped_defs=true`; `services`, `core`, `llm` için `disallow_untyped_defs=true`) | temiz, 160 dosya |
+| `pytest -q --cov` (E2E hariç) | **348 test geçti** (v1: 228); toplam kapsam **%94**, her modül ≥ %80 |
 | `pytest tests/e2e` (Playwright, gerçek Chromium) | 3 akış testi geçti; CI'da Chromium kurulur |
 | `docker compose build` | başarılı (api + PostgreSQL + Redis) |
 | `git grep` ile iç LLM adresi | takip edilen dosyalarda yok |
@@ -97,6 +97,7 @@ değiştirmez, yalnız kendi başlattığı süreci kapatır, ayrı port ve geç
 | v1 denetimi | 7,5/10 | 25 bulgu (bu rapordaki tablo) |
 | v2 tur 1 | **8/10** | Testler/lint/mypy/E2E temiz; TWR, Euler, Idzorek, FIFO/HIFO bağımsız hesapla birebir. 13 bulgu (aşağıda) |
 | v2 tur 2 | **8/10** | Canlı API, onay akışı ve maliyet mutabakatı doğrulandı; Sharpe risksiz faiz yöntemi dahil 7 bulgu (aşağıda) |
+| v2 tur 3 | **8/10** | Yüksek önemde bulgu yok; Sharpe (nakit fonu ≈ 0), takvim yıllı walk-forward, net stopaj ve 404 sınırları bağımsız doğrulandı. 10 orta/düşük bulgu (aşağıda) |
 
 ### Tur 1 bulguları ve karşılıkları
 
@@ -136,3 +137,36 @@ yalnız risksiz faizle birlikte etkiler ve piyasa konvansiyonudur). `xirr` 365, 
 kullanır (etkisi ihmal edilebilir). Mevzuat oranları politika dosyasında "bilgi amaçlı"dır.
 Denetçinin gördüğü `FINAL_REPORT_v2.md` değişikliği bu raporun tur 1 bölümüydü (ana oturumun
 commit'lenmemiş düzenlemesi).
+
+### Tur 3 bulguları ve karşılıkları
+
+| # | Önem | Bulgu | Karşılık | Commit | Test |
+|---|---|---|---|---|---|
+| 1 | Orta | METHODOLOGY'de ±10 bandından kalma sayı (seviye 6: %25/%30) | %20/%25 (model + 5 puan) olarak düzeltildi | da171e6 | — |
+| 2 | Orta | Vekil nakit fonu kote faizi yıllık bileşik sayıyor, risksiz faiz günlük bileşik | Gerekçeli bırakıldı (aşağıda) | — | — |
+| 3 | Orta | `/backtest` istenen yılı döndürüyor; testteki vekil dönem bildirilmiyor | `years` gerçekleşen süre, `years_requested`, `proxy_in_test` | 603d2e0 | `test_backtest_api_uses_walk_forward_for_optimizer`, `test_proxy_segments_inside_a_test_period_are_reported` |
+| 4 | Orta | Ağ koruması DNS sorgusunu engellemiyor (çevrimdışı ortamda test kırılıyor) | `socket.getaddrinfo` da korunur | 1d74b48 | `test_dns_lookups_are_blocked_too` |
+| 5 | Düşük | Nakit ağırlıklı seviyelerin Sharpe'ı yüksek görünüyor, açıklanmamış | MODEL_PORTFOLIOS okuma notu | da171e6 | — |
+| 6 | Düşük | Walk-forward evreni tam veri koşuluyla seçiliyor (hafif ileriye bakış) | Zaten `excluded_short_history` ve DATA'da açık; gerekçeli bırakıldı | — | — |
+| 7 | Düşük | `macro.csv` son satırı ay sonu etiketli (2026-09-30) | Hesaba etkisi yok (`≤ tarih` filtresi); gerekçeli bırakıldı | — | — |
+| 8 | Düşük | `macro_manual.csv` olmayan betiğe gönderme | `fetch_real_data.py` | da171e6 | — |
+| 9 | Düşük | XIRR 365, diğerleri 365,25 gün | Tur 2 gerekçesiyle aynı | — | — |
+| 10 | Düşük | Simülasyon stopajı satış bazında, `realized_summary` yıl-sınıf bazında netliyor | Bilgi amaçlı iki görünüm; gerekçeli bırakıldı | — | — |
+
+### Hedef puan (≥ 9/10) neden üç turda yakalanamadı
+
+Denetim döngüsü en fazla 3 tur çalıştırıldı. Puan tur 1 → 3 boyunca 8/10'da kaldı, ancak
+bulguların ağırlığı belirgin biçimde düştü: tur 1'de bir yüksek önemde bulgu (hisse sınıfının tek
+hisseyle temsili), tur 2'de bir yüksek bulgu (Sharpe'ta basit/bileşik faiz karışıklığı), tur 3'te
+**hiç yüksek bulgu yok**. Kalan maddeler ve gerekçeleri:
+
+* **Vekil nakit fonunun bileşiklemesi (tur 3 #2):** Düzeltmek için snapshot'ın ağdan yeniden
+  üretilmesi gerekir; vekil yalnız 2021-09 öncesini etkiler, varsayılan 5 yıllık test dönemine
+  girmez ve varsayılan HRP beklenen getiri kullanmaz. Kod, snapshot ile tutarlı kalsın diye
+  değiştirilmedi. Yapılacak iş olarak not edildi: `derive.py` vekili `(1 + (r − ücret)/365)^gün`
+  ile büyütülmeli ve snapshot yenilenmeli.
+* **Git geçmişinin yoğunluğu:** Geçmiş yeniden yazılamaz (force push yasak).
+* **Mevzuat ve dış veri doğrulaması:** Denetçinin ağ erişimi yoktu; oranlar politika dosyasında
+  "bilgi amaçlı" olarak işaretli.
+* Denetçinin kalan puan kırıntıları tek geliştirici prototipi olmanın doğal sınırlarıdır (üretim
+  entegrasyonu, pentest, yük testi yok); README "Sınırlamalar" bölümünde açıkça yazılıdır.
