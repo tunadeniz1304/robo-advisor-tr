@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from core.deps import SessionDep, UserDep, load_customer_checked, load_portfolio_checked
@@ -136,3 +136,45 @@ async def backtest(
         "risk_free_rate": rf,
         "benchmarks": benchmark_report(px.index, prices, cpi, body.initial, rf),
     }
+
+
+MODEL_PERFORMANCE_FILE = "model_performance.json"
+
+
+@router.get(
+    "/model-portfolios/performance",
+    summary="10 model portföyün walk-forward performansı (aynı test dönemi)",
+)
+async def model_portfolios_performance(
+    request: Request,
+    user: UserDep,
+    levels: Annotated[str | None, Query(description="Örn. 3,6,9; boşsa tümü")] = None,
+) -> dict[str, Any]:
+    """Precomputed with the snapshot (``scripts/model_portfolio_report.py``) or computed.
+
+    Without ``levels`` the file shipped with the snapshot is served when it
+    matches the snapshot date; otherwise the result is computed and cached.
+    """
+    import json
+
+    from services.analytics.model_tracking import model_portfolio_performance
+    from services.market_data.sources import SNAPSHOT_DIR
+
+    container = request.app.state.container
+    market = container.market
+    wanted = sorted({int(x) for x in levels.split(",")}) if levels else list(range(1, 11))
+    if any(lv < 1 or lv > 10 for lv in wanted):
+        raise HTTPException(status_code=422, detail="Seviyeler 1–10 arasında olmalı.")
+    path = SNAPSHOT_DIR / MODEL_PERFORMANCE_FILE
+    snapshot_end = market.snapshot_meta().get("end")
+    if levels is None and path.is_file() and market.data_mode()["source"] == "snapshot":
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        if cached.get("snapshot_end") == snapshot_end:
+            return {**cached, "source": "snapshot_cache"}
+    key = ("model_performance", tuple(wanted))
+    if key not in container.extras:
+        try:
+            container.extras[key] = await model_portfolio_performance(market, levels=wanted)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {**container.extras[key], "snapshot_end": snapshot_end, "source": "computed"}
