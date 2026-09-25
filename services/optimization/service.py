@@ -416,18 +416,18 @@ class OptimizationService:
         return w, res.posterior, payload
 
     async def model_portfolio_stats(self, level: int) -> dict[str, float]:
-        """Expected return/volatility of a model portfolio (class representatives)."""
-        from services.market_data.universe import CLASS_REPRESENTATIVE
+        """Expected return/volatility of a model portfolio (class baskets)."""
+        from services.market_data.universe import model_symbol_weights
 
-        weights = self._policy.model_weights(level)
-        symbols = [CLASS_REPRESENTATIVE[c] for c in weights]
+        sym_w = model_symbol_weights(self._policy.model_weights(level))
+        symbols = list(sym_w)
         rets = await self.estimation_window(symbols)
         cols = [s for s in symbols if s in rets.columns]
         if not cols:
             return {"expected_return": 0.0, "volatility": 0.0}
         cov, _ = ledoit_wolf(rets[cols])
         mu = expected_returns(rets[cols], cov=cov)
-        w = np.array([weights[BY_SYMBOL[s].asset_class] for s in cols])
+        w = np.array([sym_w[s] for s in cols])
         w = w / w.sum()
         return {"expected_return": float(w @ mu), "volatility": st.portfolio_volatility(w, cov)}
 

@@ -39,7 +39,7 @@ from services.analytics.backtest import run_backtest  # noqa: E402
 from services.analytics.walkforward import walk_forward  # noqa: E402
 from services.market_data.service import MarketDataService  # noqa: E402
 from services.market_data.sources import SNAPSHOT_DIR, SnapshotSource  # noqa: E402
-from services.market_data.universe import CLASS_REPRESENTATIVE  # noqa: E402
+from services.market_data.universe import model_symbol_weights  # noqa: E402
 from services.optimization.service import OptimizationRequest, OptimizationService  # noqa: E402
 from services.planning.service import GoalPlanningService  # noqa: E402
 from services.regime import detect_regime  # noqa: E402
@@ -65,7 +65,7 @@ async def collect(directory: Path) -> dict[str, Any]:
     out["risk_free_rate"] = _r(market.risk_free_rate())
     out["inflation_yoy"] = _r(market.inflation_yoy())
 
-    weights = {CLASS_REPRESENTATIVE[c]: w for c, w in policy.model_weights(LEVEL).items()}
+    weights = model_symbol_weights(policy.model_weights(LEVEL))
     prices = (await market.history(sorted(weights))).tail(YEARS * 252)
     rf = market.mean_risk_free_rate(prices.index[0], prices.index[-1])
     bt = run_backtest(prices, weights, policy_name="band", risk_free_rate=rf)

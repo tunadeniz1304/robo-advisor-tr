@@ -18,7 +18,7 @@ from core.policy import InvestmentPolicy, get_policy
 from llm.gateway import LLMGateway
 from llm.prompts import DISCLAIMER
 from services.market_data.service import MarketDataService
-from services.market_data.universe import CLASS_REPRESENTATIVE
+from services.market_data.universe import model_symbol_weights
 from services.planning.monte_carlo import SimulationSpec, simulate
 
 GOAL_TYPES = {
@@ -49,10 +49,9 @@ class GoalPlanningService:
         level = max(1, min(int(level), 10))
         if level in self._cache:
             return self._cache[level]
-        weights = self._p.model_weights(level)
-        symbols = [CLASS_REPRESENTATIVE[c] for c in weights]
+        w = pd.Series(model_symbol_weights(self._p.model_weights(level)))
+        symbols = list(w.index)
         monthly = await self._market.returns(symbols, freq="M")
-        w = pd.Series({CLASS_REPRESENTATIVE[c]: v for c, v in weights.items()})
         cols = [s for s in w.index if s in monthly.columns]
         port = (monthly[cols].fillna(0.0) * (w[cols] / w[cols].sum())).sum(axis=1)
         cpi = self._market.macro().get("TUFE")

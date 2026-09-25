@@ -20,7 +20,7 @@ from core.policy import InvestmentPolicy, get_policy
 from services.analytics.backtest import run_backtest
 from services.analytics.walkforward import walk_forward
 from services.market_data.service import MarketDataService
-from services.market_data.universe import CLASS_REPRESENTATIVE
+from services.market_data.universe import model_symbol_weights
 from services.optimization.service import OptimizationRequest, OptimizationService
 
 TRADING_DAYS = 252
@@ -73,7 +73,7 @@ async def model_portfolio_performance(
             cpi=cpi,
             policy=policy,
         )
-        model = {CLASS_REPRESENTATIVE[c]: w for c, w in policy.model_weights(level).items()}
+        model = model_symbol_weights(policy.model_weights(level))
         test = panel.loc[wf["test_start"] :, list(model)]
         static = run_backtest(test, model, policy_name="band", risk_free_rate=rf, policy=policy)
         out["levels"][str(level)] = {

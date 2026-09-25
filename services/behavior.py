@@ -123,13 +123,13 @@ async def sweep(
 
 async def panic_sell_cost(market: MarketDataService, level: int) -> dict[str, Any]:
     """Average 12-month forward return of the model portfolio after −5 % months."""
-    from services.market_data.universe import CLASS_REPRESENTATIVE
+    from services.market_data.universe import model_symbol_weights
 
     policy = get_policy()
-    weights = policy.model_weights(level)
-    symbols = [CLASS_REPRESENTATIVE[c] for c in weights]
+    weights = model_symbol_weights(policy.model_weights(level))
+    symbols = list(weights)
     rets = await market.returns(symbols + ["XU100.IS"], freq="M")
-    w = np.array([weights[c] for c in weights])
+    w = np.array([weights[s] for s in symbols])
     port = rets[symbols].fillna(0.0).to_numpy() @ (w / w.sum())
     bist = rets["XU100.IS"].to_numpy()
     trigger = float(policy.nudges["market_drop_trigger"])

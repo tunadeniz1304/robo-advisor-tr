@@ -179,6 +179,30 @@ CLASS_REPRESENTATIVE: dict[str, str] = {
 }
 
 
+# Statik model portföyde bir sınıfın nasıl temsil edildiği (sınıf içi eşit ağırlık).
+# Hisse sınıfı tek bir hisseyle değil, evrendeki tüm BIST hisseleriyle temsil edilir; bu
+# hisseler bugünün büyük şirketleridir (hayatta kalma yanlılığı: docs/MODEL_PORTFOLIOS.md).
+CLASS_BASKET: dict[str, tuple[str, ...]] = {
+    "para_piyasasi": ("TL_PPF",),
+    "tl_tahvil": ("TL_TAHVIL",),
+    "eurobond": ("EUROBOND_TL",),
+    "altin": ("ALTIN_TL",),
+    "doviz": ("USDTRY", "EURTRY"),
+    "bist_endeks": ("XU100.IS",),
+    "bist_hisse": tuple(s.symbol for s in UNIVERSE if s.asset_class == "bist_hisse"),
+}
+
+
+def model_symbol_weights(class_weights: dict[str, float]) -> dict[str, float]:
+    """Instrument weights of a model portfolio: class weight split equally in its basket."""
+    out: dict[str, float] = {}
+    for cls, weight in class_weights.items():
+        basket = CLASS_BASKET.get(cls, (CLASS_REPRESENTATIVE[cls],))
+        for sym in basket:
+            out[sym] = out.get(sym, 0.0) + float(weight) / len(basket)
+    return out
+
+
 def asset_class_of(symbol: str) -> str:
     """Asset class of a symbol (unknown symbols are treated as BIST stocks)."""
     spec = BY_SYMBOL.get(symbol)
@@ -197,7 +221,9 @@ def symbols_in_class(asset_class: str) -> list[str]:
 __all__ = [
     "BENCHMARK_SYMBOL",
     "BY_SYMBOL",
+    "CLASS_BASKET",
     "CLASS_REPRESENTATIVE",
+    "model_symbol_weights",
     "InstrumentSpec",
     "TEFAS_FUNDS",
     "UNDERLYING_YAHOO",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from core.deps import SessionDep, UserDep, load_customer_checked, load_portfolio_checked
 from core.policy import get_policy
@@ -13,7 +13,7 @@ from models import Customer
 from services.analytics.backtest import POLICIES, compare_policies, run_backtest
 from services.analytics.history import portfolio_report
 from services.analytics.walkforward import benchmark_report, walk_forward
-from services.market_data.universe import BENCHMARK_SYMBOL, CLASS_REPRESENTATIVE
+from services.market_data.universe import BENCHMARK_SYMBOL, model_symbol_weights
 from services.optimization.service import OptimizationRequest
 from services.suitability.service import effective_level
 
@@ -30,6 +30,18 @@ class BacktestIn(BaseModel):
     compare: bool = True
     years: float = Field(default=5, gt=0.5, le=10)
     initial: float = Field(default=100_000, gt=0)
+
+    @field_validator("weights")
+    @classmethod
+    def _long_only(cls, value: dict[str, float] | None) -> dict[str, float] | None:
+        """Long-only, fully invested (the backtest has no leverage or short model)."""
+        if value is None:
+            return value
+        if not value or any(w < 0 for w in value.values()):
+            raise ValueError("Ağırlıklar negatif olamaz ve boş olamaz.")
+        if abs(sum(value.values()) - 1.0) > 1e-6:
+            raise ValueError("Ağırlıkların toplamı 1 olmalı.")
+        return value
 
 
 @router.get("/portfolios/{portfolio_id}/report", summary="Tear sheet, TWR ve MWR")
@@ -112,7 +124,7 @@ async def backtest(
     if body.weights:
         target = body.weights
     else:
-        target = {CLASS_REPRESENTATIVE[c]: w for c, w in policy.model_weights(level).items()}
+        target = model_symbol_weights(policy.model_weights(level))
     prices = await market.history(sorted(set(target) | set(bench_syms) | {BENCHMARK_SYMBOL}))
     prices = prices.tail(test_days)
     missing = [s for s in target if s not in prices.columns]
