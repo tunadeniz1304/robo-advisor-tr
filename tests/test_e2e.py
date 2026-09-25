@@ -93,5 +93,5 @@ def test_spa_is_served_with_csp(client: TestClient) -> None:
     csp = page.headers["Content-Security-Policy"]
     assert "script-src 'self'" in csp and "unsafe-eval" not in csp
     assert "<script>" not in page.text and "onclick" not in page.text
-    for asset in ("/assets/app.js", "/assets/app.css", "/assets/vendor/chart.umd.min.js"):
+    for asset in ("/assets/js/main.js", "/assets/app.css", "/assets/vendor/chart.umd.min.js"):
         assert client.get(asset).status_code == 200
