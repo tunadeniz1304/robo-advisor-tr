@@ -68,9 +68,14 @@ def render(result: dict[str, Any]) -> str:
         "* **Statik model:** model sınıf ağırlıkları sınıf sepetlerine eşit dağıtılır (hisse "
         "sınıfı = evrendeki 15 BIST hissesi, döviz = USD+EUR, fonlar = sınıf temsilcisi), bant "
         "politikasıyla rebalance. Hisse sepeti bugünün büyük şirketlerinden oluştuğu için "
-        "**hayatta kalma yanlılığı** taşır; statik sonuçlar bu yüzden iyimserdir.",
-        f"* **Sharpe** dönem ortalaması TL politika faiziyle (%{result['risk_free_rate'] * 100:.1f}) "
-        "hesaplanır; işlem maliyetleri dahildir, vergi hariçtir.",
+        "**hayatta kalma yanlılığı** taşır; statik sonuçlar bu yüzden iyimserdir. Walk-forward "
+        "de aynı hisse evreninden seçim yaptığı için bu yanlılığı taşır.",
+        "* **Walk-forward evreni:** tüm dönem boyunca verisi eksiksiz olan semboller; ilk "
+        "yeniden optimizasyonların tahmin pencereleri 2021-09 öncesi vekil fon verisi içerir "
+        "(bkz. DATA).",
+        "* **Sharpe** risksiz getiri olarak dönemin TL politika faizlerinin günlük bileşik "
+        f"karşılığını kullanır (%{result['risk_free_rate'] * 100:.1f}); işlem maliyetleri "
+        "dahildir, vergi hariçtir.",
         "",
         "| Seviye | Profil | WF CAGR | WF vol. | WF Sharpe | WF maks. düşüş | Statik CAGR |"
         " Statik vol. | Statik maks. düşüş |",

@@ -51,9 +51,17 @@ ilk gerçek güne ölçeklenir (seviye sürekliliği; getiriler vekilindir):
 olduğunu (TEFAS'a ulaşılamadığında), `proxy_until` ise o tarihe kadarki kısmın vekil olduğunu
 gösterir. Arayüzdeki veri rozeti ve "Veri kalitesi" kartı bu alanları gösterir.
 
-Walk-forward backtest'in varsayılan 5 yıllık test dönemi ve optimizer'ın tahmin penceresi
-(son ≤5 yıl) tamamen gerçek fon fiyatlarına düşer; vekil dönem yalnızca daha eski tarihsel
-senaryolarda (2018 kur şoku, 2020 COVID) ve 10 yıllık analizlerde kullanılır.
+Walk-forward backtest'in varsayılan 5 yıllık **test dönemi** (2021-09 sonrası) gerçek fon
+fiyatlarına düşer. Ancak her yeniden optimizasyondaki 756 işlem günlük **tahmin penceresi**
+2024 ortasına kadar 2021-09 öncesine uzanır: 21 yeniden dengelemenin yaklaşık 12'sinde
+`TL_PPF`, `TL_TAHVIL` ve `EUROBOND_TL` için pencerenin bir kısmı (ilk pencerede neredeyse
+tamamı) vekildir. Yani optimizer'ın ilk yıllardaki beklenen getiri ve kovaryans tahminleri kısmen
+vekil veriden gelir; ölçülen test getirileri ise gerçektir. Ayrıca tüm test ve pencere boyunca
+verisi eksiksiz olmayan semboller (ör. vekil uzantısı olmayan ve TEFAS verisi 2021-09'da başlayan
+`YOT`, `IPV`, `TTA`)
+walk-forward'dan dışlanır ve yanıtta `excluded_short_history` alanında listelenir; bu yüzden
+walk-forward evreni canlı optimizer evreninden biraz dardır. Vekil dönem ayrıca daha eski
+tarihsel senaryolarda (2018 kur şoku, 2020 COVID) ve 10 yıllık analizlerde kullanılır.
 
 ### Bilinen sınırlamalar
 * **Politika faizi 2017 – 2018 ortası:** TCMB Ocak 2017 – Mayıs 2018 arasında piyasayı bir hafta

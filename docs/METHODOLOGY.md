@@ -58,8 +58,11 @@ veya sınıf bant dışında ya da atıl nakit > `c_max`. LP (HiGHS):
 `min Σ(1+k_i)b_i + (1+κ+k_i)s_i + εΣd_i` s.t. enstrüman ve sınıf bantları (%90 güvenlik payı),
 `0 ≤ C − Σ(1+k)b + Σ(1−k)s ≤ ½c_max·V`, `d_i ≥ |v_i + b_i − s_i − w*_i V|`, `s_i ≤ v_i`.
 κ satış cezası (vergi), ε hedefe çekim → **yeni nakit önce en düşük ağırlıklılara** gider.
-Maliyet = komisyon + BSMV + yarım spread (+asgari ücret). Stopaj lot bazında (FIFO/HIFO), elde
-tutma süresine göre tablo. Broker: `p_dolum = p·(1 ± slipaj)`.
+Maliyet = komisyon + BSMV + yarım spread (+asgari ücret). Stopaj lot bazında, elde tutma süresine
+göre tablo; varsayılan lot yöntemi **FIFO**'dur (HIFO yalnızca karşılaştırma simülasyonunda).
+Stopaj matrahı satış maliyetleri (komisyon + BSMV) düşülmüş **net** kârdır; ledger'ın gerçekleşen
+K/Z'si ile aynı tabandır. `ALTIN_TL` altın fonu gibi vergilendirilir (%17,5, örnek oran); banka
+altın hesabı veya fiziki altın için oran farklı olabilir. Broker: `p_dolum = p·(1 ± slipaj)`.
 
 ## 5. Hedef Monte Carlo
 Aylık nominal TL portföy getirisi ve aylık TÜFE **aynı indekslerle** blok bootstrap edilir (L=6 ay,
@@ -81,7 +84,10 @@ Aylık nominal TL portföy getirisi ve aylık TÜFE **aynı indekslerle** blok b
 * **Tear sheet:** CAGR (aynı takvim kuralı), vol, **Sharpe = (ortalama dönemsel getiri − r_f,dönem)·N /
   σ_yıllık** (ex-post). N (yıllık gözlem sayısı) tarihlerden çıkarılır: snapshot'ta yılda ~261 hafta içi
   satır vardır, sabit 252 kullanmak dönemi uzatıp CAGR'ı düşürüyordu. Risksiz faiz, ölçülen dönemde
-  geçerli TCMB politika faizlerinin ortalamasıdır (bugünkü faiz değil). Sortino, Calmar, MDD,
+  geçerli TCMB politika faizlerinden türetilir (bugünkü faiz değil). Politika faizi **basit** yıllık
+  orandır; günlük tahakkuk eden nakdin getirisiyle karşılaştırılabilmesi için
+  `(1 + r/365)^365 − 1` ile bileşik yıllık getiriye çevrilir ve dönem boyunca log ortalaması
+  alınır. Basit oranı doğrudan kullanmak, para piyasası fonuna bile ~3,7 Sharpe veriyordu. Sortino, Calmar, MDD,
   tarihsel/parametrik VaR-CVaR %95, XU100 beta/TE/IR. `/performance` artık `/report`'un
   kullanımdan kalkan bir özetidir; ikisi aynı sayıları döndürür.
 * **Backtest:** rebalance yok / takvim / bant (canlı motorla aynı bant kuralı), maliyetli.
