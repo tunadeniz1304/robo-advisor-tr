@@ -28,6 +28,8 @@ from core.policy import InvestmentPolicy, get_policy
 from services.analytics.performance import tear_sheet
 from services.rebalancing.costs import CostModel
 
+DAYS_PER_YEAR = 365.25
+
 Optimizer = Callable[[pd.DataFrame, pd.Timestamp], dict[str, float]]
 CURVE_POINTS = 250
 
@@ -111,6 +113,20 @@ def benchmark_report(
     """XU100, TÜFE+spread and 60/40 benchmarks on ``index``."""
     cfg = (policy or get_policy()).backtest
     return _benchmarks(pd.DatetimeIndex(index), prices, cpi, cfg, initial, risk_free_rate)
+
+
+def trim_for_test(panel: pd.DataFrame, years: float, lead: int = 0) -> pd.DataFrame:
+    """Keep ``years`` calendar years of test data plus ``lead`` earlier rows.
+
+    The test period is measured in calendar time (not ``years × 252`` rows):
+    the snapshot has ~261 weekday rows a year, so a row count would shorten
+    a "5-year" test to about 4.8 calendar years.
+    """
+    if panel.empty:
+        return panel
+    cutoff = panel.index[-1] - pd.Timedelta(days=round(years * DAYS_PER_YEAR))
+    first_test = int(panel.index.searchsorted(cutoff))
+    return panel.iloc[max(0, first_test - lead) :]
 
 
 def walk_forward(
@@ -211,4 +227,4 @@ def walk_forward(
     }
 
 
-__all__ = ["Optimizer", "benchmark_report", "walk_forward"]
+__all__ = ["Optimizer", "benchmark_report", "trim_for_test", "walk_forward"]

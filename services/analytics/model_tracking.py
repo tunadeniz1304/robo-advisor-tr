@@ -18,12 +18,10 @@ from typing import Any
 
 from core.policy import InvestmentPolicy, get_policy
 from services.analytics.backtest import run_backtest
-from services.analytics.walkforward import walk_forward
+from services.analytics.walkforward import trim_for_test, walk_forward
 from services.market_data.service import MarketDataService
 from services.market_data.universe import model_symbol_weights
 from services.optimization.service import OptimizationRequest, OptimizationService
-
-TRADING_DAYS = 252
 
 
 def _stats(s: dict[str, Any]) -> dict[str, Any]:
@@ -56,7 +54,7 @@ async def model_portfolio_performance(
         req = OptimizationRequest(level=level, method=method)
         symbols = optimizer.allowed_symbols(req)
         panel = await market.history(sorted(set(symbols) | set(bench_syms)))
-        panel = panel.tail(int(years * TRADING_DAYS) + window + 1)
+        panel = trim_for_test(panel, years, window + 1)
         full = [s for s in symbols if s in panel.columns and panel[s].notna().all()]
         rf = market.mean_risk_free_rate(panel.index[window], panel.index[-1])
 

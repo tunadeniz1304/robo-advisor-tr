@@ -12,7 +12,7 @@ from core.policy import get_policy
 from models import Customer
 from services.analytics.backtest import POLICIES, compare_policies, run_backtest
 from services.analytics.history import portfolio_report
-from services.analytics.walkforward import benchmark_report, walk_forward
+from services.analytics.walkforward import benchmark_report, trim_for_test, walk_forward
 from services.market_data.universe import BENCHMARK_SYMBOL, model_symbol_weights
 from services.optimization.service import OptimizationRequest
 from services.suitability.service import effective_level
@@ -79,14 +79,13 @@ async def backtest(
     market = container.market
     bench_syms = [str(cfg["benchmark_equity"]), str(cfg["benchmark_bond"])]
     cpi = market.macro().get("TUFE")
-    test_days = int(body.years * 252)
 
     if body.use_optimizer and not body.weights:
         req = OptimizationRequest(level=level, method=body.method)
         symbols = container.optimizer.allowed_symbols(req)
         window = int(cfg["window_days"])
         panel = await market.history(sorted(set(symbols) | set(bench_syms)))
-        panel = panel.tail(test_days + window + 1)
+        panel = trim_for_test(panel, body.years, window + 1)
         full = [s for s in symbols if s in panel.columns and panel[s].notna().all()]
         short = sorted(set(symbols) - set(full))
         if len(panel) <= window + 1 or not full:
@@ -126,7 +125,7 @@ async def backtest(
     else:
         target = model_symbol_weights(policy.model_weights(level))
     prices = await market.history(sorted(set(target) | set(bench_syms) | {BENCHMARK_SYMBOL}))
-    prices = prices.tail(test_days)
+    prices = trim_for_test(prices, body.years)
     missing = [s for s in target if s not in prices.columns]
     if missing:
         raise HTTPException(status_code=422, detail=f"Fiyat verisi olmayan semboller: {missing}")
