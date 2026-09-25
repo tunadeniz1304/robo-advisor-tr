@@ -1,5 +1,5 @@
-"""Market data sources: offline snapshot, live Yahoo Finance, TCMB EVDS and
-the live → snapshot chain.
+"""Market data sources: offline snapshot, live Yahoo Finance and the
+live → snapshot chain (EVDS/TEFAS/TCMB are fetched by scripts/fetch_real_data.py).
 
 Every price source satisfies :class:`services.market_service.MarketDataSource`
 (``download_history(symbols) -> {symbol: DataFrame[Close]}``) keyed by
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -231,49 +230,8 @@ class ChainedSource:
         return result
 
 
-class EvdsSource:
-    """TCMB EVDS client for macro series (requires ``EVDS_API_KEY``).
-
-    Series codes: ``TP.FG.J0`` (TÜFE 2003=100), ``TP.APIFON4`` (weighted
-    average funding cost ≈ policy stance). The key is sent as a header and
-    never logged.
-    """
-
-    BASE_URL = "https://evds2.tcmb.gov.tr/service/evds"
-    SERIES = {"TUFE": "TP.FG.J0", "POLICY_RATE": "TP.APIFON4"}
-
-    def __init__(self, api_key: str, timeout: float = 20.0) -> None:
-        self._key = api_key
-        self._timeout = timeout
-
-    def fetch(self, start: date, end: date) -> pd.DataFrame:
-        """Blocking download of the monthly macro frame."""
-        import httpx
-
-        codes = "-".join(self.SERIES.values())
-        url = (
-            f"{self.BASE_URL}/series={codes}&startDate={start:%d-%m-%Y}&endDate={end:%d-%m-%Y}"
-            "&type=json&frequency=5&aggregationTypes=avg-avg"
-        )
-        resp = httpx.get(url, headers={"key": self._key}, timeout=self._timeout)
-        resp.raise_for_status()
-        items = resp.json().get("items", [])
-        rows = []
-        for item in items:
-            when = pd.Period(item["Tarih"], freq="M").to_timestamp("M")
-            row: dict[str, Any] = {"date": when}
-            for name, code in self.SERIES.items():
-                value = item.get(code.replace(".", "_"))
-                row[name] = float(value) if value not in (None, "") else None
-            rows.append(row)
-        frame = pd.DataFrame(rows).set_index("date").sort_index()
-        frame["POLICY_RATE"] = frame["POLICY_RATE"] / 100.0
-        return frame.ffill()
-
-
 __all__ = [
     "ChainedSource",
-    "EvdsSource",
     "LiveYahooSource",
     "MACRO_FILE",
     "META_FILE",

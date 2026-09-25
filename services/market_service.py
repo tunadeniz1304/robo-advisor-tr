@@ -11,7 +11,7 @@ Risk and Portfolio agents need:
     * aligned daily-return series (indexed by date) for Markowitz MPT.
 
 The service depends on a :class:`MarketDataSource` protocol rather than on
-``yfinance`` directly. The default implementation :class:`YFinanceSource`
+``yfinance`` directly. The production chain (:mod:`services.market_data.sources`)
 talks to the network; tests inject a deterministic in-memory source that
 satisfies the same protocol, so the rest of the system is verified offline
 while production still uses real market data.
@@ -41,58 +41,6 @@ class MarketDataSource(Protocol):
     async def download_history(self, symbols: list[str]) -> dict[str, pd.DataFrame]:
         """Download adjusted daily close history for the given symbols."""
         ...
-
-
-class YFinanceSource:
-    """Real market data source backed by the Yahoo Finance API (yfinance)."""
-
-    def __init__(self, period: str = "5y", interval: str = "1d") -> None:
-        self._period = period
-        self._interval = interval
-
-    async def download_history(self, symbols: list[str]) -> dict[str, pd.DataFrame]:
-        """Download histories off the event loop.
-
-        ``yfinance`` is synchronous; ``to_thread`` keeps the network I/O off
-        the asyncio loop. Ticker symbols are normalised to Yahoo Finance
-        format (e.g. ``THYAO.IS`` for Borsa Istanbul).
-
-        Returns:
-            A mapping of the *requested* symbols to DataFrames (never raises
-            per-symbol; missing symbols simply yield an empty frame).
-
-        Raises:
-            RuntimeError: If the whole download fails (e.g. no connectivity).
-        """
-
-        def _blocking_download() -> dict[str, pd.DataFrame]:
-            import yfinance as yf
-
-            data = yf.download(
-                tickers=" ".join(symbols),
-                period=self._period,
-                interval=self._interval,
-                group_by="ticker",
-                auto_adjust=True,
-                progress=False,
-                threads=True,
-            )
-            result: dict[str, pd.DataFrame] = {}
-            if len(symbols) == 1:
-                result[symbols[0]] = data
-            else:
-                for sym in symbols:
-                    try:
-                        result[sym] = data[sym]
-                    except KeyError:
-                        result[sym] = pd.DataFrame()
-            return result
-
-        try:
-            return await asyncio.to_thread(_blocking_download)
-        except Exception as exc:
-            logger.error("market_download_failed", symbols=symbols, error=str(exc))
-            raise RuntimeError(f"Yahoo Finance veri indirilemedi: {exc}") from exc
 
 
 @dataclass
@@ -253,4 +201,4 @@ class MarketService:
         return frame
 
 
-__all__ = ["MarketService", "MarketDataSource", "YFinanceSource", "MarketSnapshot"]
+__all__ = ["MarketService", "MarketDataSource", "MarketSnapshot"]
