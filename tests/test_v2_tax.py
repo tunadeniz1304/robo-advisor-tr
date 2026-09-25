@@ -96,7 +96,7 @@ def test_harvest_saving_is_capped_by_same_class_gains() -> None:
         book, {"TL_PPF": 4.0, "TL_TAHVIL": 9.0}, realized, today=date(2025, 9, 1)
     )
     ppf = out["by_class"]["para_piyasasi"]
-    assert ppf["unrealized_loss"] == pytest.approx(300.0)
+    assert ppf["unrealized_loss"] == pytest.approx(-300.0)
     assert ppf["offsettable"] == pytest.approx(100.0)
     assert ppf["estimated_saving"] == pytest.approx(17.5)
     assert out["by_class"]["tl_tahvil"]["estimated_saving"] == 0.0  # o sınıfta kâr yok

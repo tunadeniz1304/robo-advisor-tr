@@ -249,7 +249,7 @@ def harvest_simulation(
         )
         usable = min(loss, max(0.0, gains.get(cls, 0.0)))
         savings[cls] = {
-            "unrealized_loss": round(loss, 2),
+            "unrealized_loss": round(-loss, 2),  # adaylarla aynı işaret: zarar negatif
             "realized_gain_ytd": round(gains.get(cls, 0.0), 2),
             "offsettable": round(usable, 2),
             "estimated_saving": round(usable * rate, 2),
